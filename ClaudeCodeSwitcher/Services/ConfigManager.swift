@@ -66,8 +66,13 @@ class ConfigManager: ObservableObject {
     }
     
     func copyProvider(_ provider: APIProvider) {
-        var copiedProvider = provider
-        copiedProvider.name = provider.name + "-复制"
+        let copiedProvider = APIProvider(
+            name: provider.name + "-复制",
+            url: provider.url,
+            key: provider.key,
+            largeModel: provider.largeModel,
+            smallModel: provider.smallModel
+        )
         providers.append(copiedProvider)
         saveConfiguration()
         syncToClaudeConfig()

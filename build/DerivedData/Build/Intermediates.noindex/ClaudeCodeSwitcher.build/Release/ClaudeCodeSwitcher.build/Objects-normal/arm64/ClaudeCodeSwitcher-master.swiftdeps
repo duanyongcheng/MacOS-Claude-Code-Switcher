@@ -1,0 +1,16 @@
+version: "Apple Swift version 6.1.2 (swiftlang-6.1.2.1.2 clang-1700.0.13.5)"
+options: "712c998285355dbaefee6d73cbb32ce79a55e81f6230fbbfe7c785c3694b08e1"
+build_start_time: [1754581109, 776839000]
+build_end_time: [1754581116, 477703000]
+inputs:
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/App/AppDelegate.swift": [1754405897, 276108941]
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/App/SettingsWindowController.swift": [1754149332, 38198643]
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/App/StatusBarController.swift": [1754406087, 882522923]
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/App/main.swift": [1754405659, 506670486]
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/Models/APIProvider.swift": [1754232015, 985132280]
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/Models/ClaudeConfig.swift": [1754215695, 568212516]
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/Services/ConfigManager.swift": [1754581085, 203927231]
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/Services/TokenStatsManager.swift": [1754400304, 858459458]
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/Views/SettingsView.swift": [1754404266, 825464338]
+  ? "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/DerivedSources/GeneratedAssetSymbols.swift"
+  : [1754581108, 466038353]

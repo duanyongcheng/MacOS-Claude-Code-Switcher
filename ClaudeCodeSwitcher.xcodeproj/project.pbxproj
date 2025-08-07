@@ -57,7 +57,7 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		B80A0017290A0A0A00000017 = {
+		B80A001F290A0A0A0000001F = {
 			isa = PBXGroup;
 			children = (
 				B80A0018290A0A0A00000018 /* ClaudeCodeSwitcher */,
@@ -175,7 +175,7 @@
 				en,
 				Base,
 			);
-			mainGroup = B80A0017290A0A0A00000017;
+			mainGroup = B80A001F290A0A0A0000001F;
 			productRefGroup = B80A0019290A0A0A00000019 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -356,7 +356,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.ClaudeCodeSwitcher;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 6.0;
+				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
 		};
@@ -382,7 +382,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.ClaudeCodeSwitcher;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 6.0;
+				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
 		};

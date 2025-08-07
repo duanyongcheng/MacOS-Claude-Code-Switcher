@@ -1,0 +1,60 @@
+{
+  "" : {
+    "const-values" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeCodeSwitcher-master.swiftconstvalues",
+    "dependencies" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeCodeSwitcher-master.d",
+    "diagnostics" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeCodeSwitcher-master.dia",
+    "emit-module-dependencies" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeCodeSwitcher-master-emit-module.d",
+    "emit-module-diagnostics" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeCodeSwitcher-master-emit-module.dia",
+    "swift-dependencies" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeCodeSwitcher-master.swiftdeps"
+  },
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/App/AppDelegate.swift" : {
+    "index-unit-output-path" : "/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/AppDelegate.o",
+    "llvm-bc" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/AppDelegate.bc",
+    "object" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/AppDelegate.o"
+  },
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/App/SettingsWindowController.swift" : {
+    "index-unit-output-path" : "/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/SettingsWindowController.o",
+    "llvm-bc" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/SettingsWindowController.bc",
+    "object" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/SettingsWindowController.o"
+  },
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/App/StatusBarController.swift" : {
+    "index-unit-output-path" : "/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/StatusBarController.o",
+    "llvm-bc" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/StatusBarController.bc",
+    "object" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/StatusBarController.o"
+  },
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/App/main.swift" : {
+    "index-unit-output-path" : "/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/main.o",
+    "llvm-bc" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/main.bc",
+    "object" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/main.o"
+  },
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/Models/APIProvider.swift" : {
+    "index-unit-output-path" : "/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/APIProvider.o",
+    "llvm-bc" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/APIProvider.bc",
+    "object" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/APIProvider.o"
+  },
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/Models/ClaudeConfig.swift" : {
+    "index-unit-output-path" : "/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeConfig.o",
+    "llvm-bc" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeConfig.bc",
+    "object" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeConfig.o"
+  },
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/Services/ConfigManager.swift" : {
+    "index-unit-output-path" : "/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ConfigManager.o",
+    "llvm-bc" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ConfigManager.bc",
+    "object" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ConfigManager.o"
+  },
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/Services/TokenStatsManager.swift" : {
+    "index-unit-output-path" : "/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/TokenStatsManager.o",
+    "llvm-bc" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/TokenStatsManager.bc",
+    "object" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/TokenStatsManager.o"
+  },
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/Views/SettingsView.swift" : {
+    "index-unit-output-path" : "/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/SettingsView.o",
+    "llvm-bc" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/SettingsView.bc",
+    "object" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/SettingsView.o"
+  },
+  "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "index-unit-output-path" : "/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/GeneratedAssetSymbols.o"
+  }
+}
