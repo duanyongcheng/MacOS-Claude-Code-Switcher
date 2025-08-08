@@ -30,6 +30,7 @@ class ConfigManager: ObservableObject {
         providers.append(provider)
         saveConfiguration()
         syncToClaudeConfig()
+        postConfigChangeNotification()
     }
     
     func updateProvider(_ provider: APIProvider) {
@@ -43,6 +44,7 @@ class ConfigManager: ObservableObject {
             
             saveConfiguration()
             syncToClaudeConfig()
+            postConfigChangeNotification()
         }
     }
     
@@ -56,6 +58,7 @@ class ConfigManager: ObservableObject {
         
         saveConfiguration()
         syncToClaudeConfig()
+        postConfigChangeNotification()
     }
     
     func setCurrentProvider(_ provider: APIProvider) {
@@ -76,6 +79,7 @@ class ConfigManager: ObservableObject {
         providers.append(copiedProvider)
         saveConfiguration()
         syncToClaudeConfig()
+        postConfigChangeNotification()
     }
     
     func updateGlobalSettings(autoUpdate: Bool, proxyHost: String, proxyPort: String) {
@@ -84,6 +88,7 @@ class ConfigManager: ObservableObject {
         self.proxyPort = proxyPort
         saveConfiguration()
         syncToClaudeConfig()
+        postConfigChangeNotification()
     }
     
     // MARK: - Private Methods

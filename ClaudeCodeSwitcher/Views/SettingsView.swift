@@ -20,7 +20,7 @@ struct SettingsView: View {
                 
                 // 使用量统计卡片
                 UsageStatsCard(
-                    weeklyStats: tokenStatsManager.weeklyStats,
+                    recentDaysStats: tokenStatsManager.recentDaysStats,
                     isLoading: tokenStatsManager.isLoading,
                     lastUpdateTime: tokenStatsManager.lastUpdateTime,
                     onRefresh: {
@@ -119,14 +119,14 @@ struct SettingsView: View {
 
 // MARK: - 使用量统计卡片
 struct UsageStatsCard: View {
-    let weeklyStats: WeeklyUsageStats?
+    let recentDaysStats: RecentDaysStats?
     let isLoading: Bool
     let lastUpdateTime: Date?
     let onRefresh: () -> Void
     
     var body: some View {
         CardView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 16) {
                 HStack {
                     Image(systemName: "chart.bar.fill")
                         .foregroundColor(.blue)
@@ -149,55 +149,116 @@ struct UsageStatsCard: View {
                     }
                 }
                 
-                if let stats = weeklyStats {
-                    VStack(spacing: 12) {
-                        // 主要统计数据网格
-                        HStack(spacing: 12) {
-                            StatsCardView(
-                                title: "总费用",
-                                value: TokenStatsData.formatCurrency(stats.totalCost),
-                                icon: "dollarsign.circle.fill",
-                                color: .orange
-                            )
+                if let stats = recentDaysStats {
+                    VStack(spacing: 16) {
+                        // 总计统计卡片
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("全部用量统计")
+                                .font(.subheadline)
+                                .font(Font.subheadline.weight(.semibold))
+                                .foregroundColor(.primary)
                             
-                            StatsCardView(
-                                title: "会话数",
-                                value: "\(stats.totalRequests)",
-                                icon: "bubble.left.and.bubble.right.fill",
-                                color: .blue
-                            )
-                            
-                            StatsCardView(
-                                title: "Token总数",
-                                value: TokenStatsData.formatNumber(stats.totalTokens),
-                                icon: "textformat.abc",
-                                color: .green
-                            )
+                            HStack(spacing: 12) {
+                                StatsCardView(
+                                    title: "总费用",
+                                    value: TokenStatsData.formatCurrency(stats.totalStats.totalCost),
+                                    icon: "dollarsign.circle.fill",
+                                    color: .orange
+                                )
+                                
+                                StatsCardView(
+                                    title: "会话数",
+                                    value: "\(stats.totalStats.totalSessions)",
+                                    icon: "bubble.left.and.bubble.right.fill",
+                                    color: .blue
+                                )
+                                
+                                StatsCardView(
+                                    title: "Token总数",
+                                    value: TokenStatsData.formatNumber(stats.totalStats.totalTokens),
+                                    icon: "textformat.abc",
+                                    color: .green
+                                )
+                            }
                         }
                         
                         Divider()
                         
-                        // 详细信息
-                        VStack(alignment: .leading, spacing: 6) {
-                            DetailRowView(
-                                label: "平均会话费用:",
-                                value: stats.totalRequests > 0 ? 
-                                    TokenStatsData.formatCurrency(stats.totalCost / Double(stats.totalRequests)) : 
-                                    "$0.0000"
-                            )
+                        // 最近三天表格
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("最近3天详情")
+                                .font(.subheadline)
+                                .font(Font.subheadline.weight(.semibold))
+                                .foregroundColor(.primary)
                             
-                            DetailRowView(
-                                label: "平均Token/会话:",
-                                value: stats.totalRequests > 0 ? 
-                                    TokenStatsData.formatNumber(stats.totalTokens / stats.totalRequests) : 
-                                    "0"
-                            )
+                            // 表格表头
+                            HStack {
+                                Text("日期")
+                                    .font(.caption)
+                                    .font(Font.caption.weight(.medium))
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 60, alignment: .leading)
+                                
+                                Text("会话")
+                                    .font(.caption)
+                                    .font(Font.caption.weight(.medium))
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 40, alignment: .trailing)
+                                
+                                Text("Token")
+                                    .font(.caption)
+                                    .font(Font.caption.weight(.medium))
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 80, alignment: .trailing)
+                                
+                                Text("费用")
+                                    .font(.caption)
+                                    .font(Font.caption.weight(.medium))
+                                    .foregroundColor(.secondary)
+                                    .frame(minWidth: 80, alignment: .trailing)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(Color(.controlBackgroundColor))
+                            .cornerRadius(6)
                             
-                            if let updateTime = lastUpdateTime {
-                                DetailRowView(
-                                    label: "更新时间:",
-                                    value: formatTime(updateTime)
-                                )
+                            // 表格数据行
+                            ForEach(stats.dailyStats, id: \.date) { dayStats in
+                                HStack {
+                                    Text(DailyStatsData.formatDate(dayStats.date))
+                                        .font(.caption)
+                                        .foregroundColor(.primary)
+                                        .frame(width: 60, alignment: .leading)
+                                    
+                                    Text("\(dayStats.sessionCount)")
+                                        .font(.caption)
+                                        .foregroundColor(.primary)
+                                        .frame(width: 40, alignment: .trailing)
+                                    
+                                    Text(TokenStatsData.formatNumber(dayStats.totalTokens))
+                                        .font(.caption)
+                                        .foregroundColor(.primary)
+                                        .frame(width: 80, alignment: .trailing)
+                                    
+                                    Text(TokenStatsData.formatCurrency(dayStats.cost))
+                                        .font(.caption)
+                                        .foregroundColor(.primary)
+                                        .frame(minWidth: 80, alignment: .trailing)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(dayStats.totalTokens > 0 ? Color(.controlBackgroundColor).opacity(0.5) : Color.clear)
+                                .cornerRadius(4)
+                            }
+                        }
+                        
+                        // 更新时间
+                        if let updateTime = lastUpdateTime {
+                            HStack {
+                                Spacer()
+                                Text("更新时间: \(formatTime(updateTime))")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
                             }
                         }
                     }

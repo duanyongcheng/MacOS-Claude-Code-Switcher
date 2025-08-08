@@ -25,6 +25,45 @@ struct TokenStatsData {
     }
 }
 
+// MARK: - 每日统计数据结构
+struct DailyStatsData {
+    let date: Date
+    var cost: Double = 0.0
+    var totalTokens: Int = 0
+    var inputTokens: Int = 0
+    var outputTokens: Int = 0
+    var cacheCreationTokens: Int = 0
+    var cacheReadTokens: Int = 0
+    var sessions: Set<String> = []
+    
+    var sessionCount: Int {
+        return sessions.count
+    }
+    
+    static func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM/dd"
+        return formatter.string(from: date)
+    }
+    
+    static func formatDateFull(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+}
+
+// MARK: - 最近三天统计数据结构
+struct RecentDaysStats {
+    let dailyStats: [DailyStatsData]
+    let totalStats: TokenStatsData
+    
+    init(dailyStats: [DailyStatsData], totalStats: TokenStatsData) {
+        self.dailyStats = dailyStats
+        self.totalStats = totalStats
+    }
+}
+
 // MARK: - JSONL 条目结构
 struct JSONLEntry: Codable {
     let timestamp: String?
@@ -59,6 +98,7 @@ class TokenStatsManager: ObservableObject {
     static let shared = TokenStatsManager()
     
     @Published var statsData: TokenStatsData = TokenStatsData()
+    @Published var recentDaysStats: RecentDaysStats?
     @Published var isLoading: Bool = false
     @Published var lastUpdateTime: Date?
     
@@ -129,6 +169,7 @@ class TokenStatsManager: ObservableObject {
             print("Claude directory not found, returning empty stats")
             DispatchQueue.main.async {
                 self.statsData = newStats
+                self.recentDaysStats = nil
             }
             return
         }
@@ -140,14 +181,14 @@ class TokenStatsManager: ObservableObject {
                 print("No usage entries found")
                 DispatchQueue.main.async {
                     self.statsData = newStats
+                    self.recentDaysStats = nil
                 }
                 return
             }
             
-            // 统计唯一会话数
+            // 计算总体统计
             var uniqueSessions = Set<String>()
             
-            // 累计统计
             for entry in allEntries {
                 newStats.totalCost += entry.cost
                 newStats.totalInputTokens += entry.inputTokens
@@ -163,16 +204,21 @@ class TokenStatsManager: ObservableObject {
             newStats.totalSessions = uniqueSessions.count
             newStats.lastUpdated = Date()
             
+            // 计算最近3天的统计数据
+            let recentStats = calculateRecentDaysStats(entries: allEntries, totalStats: newStats)
+            
             print("Token stats: \(newStats.totalTokens) tokens, \(newStats.totalSessions) sessions, $\(String(format: "%.4f", newStats.totalCost)) cost")
             
             DispatchQueue.main.async {
                 self.statsData = newStats
+                self.recentDaysStats = recentStats
             }
             
         } catch {
             print("Failed to calculate token stats: \(error)")
             DispatchQueue.main.async {
                 self.statsData = newStats
+                self.recentDaysStats = nil
             }
         }
     }
@@ -323,6 +369,60 @@ class TokenStatsManager: ObservableObject {
                   (Double(cacheReadTokens) * prices.cacheRead / 1_000_000)
         
         return cost
+    }
+    
+    private func calculateRecentDaysStats(entries: [UsageEntry], totalStats: TokenStatsData) -> RecentDaysStats {
+        let calendar = Calendar.current
+        let today = Date()
+        
+        // 创建最近3天的日期（今天、昨天、前天）
+        var dailyStatsDict: [String: DailyStatsData] = [:]
+        
+        for i in 0..<3 {
+            let date = calendar.date(byAdding: .day, value: -i, to: today) ?? today
+            let dateKey = DailyStatsData.formatDateFull(date)
+            dailyStatsDict[dateKey] = DailyStatsData(date: date)
+        }
+        
+        // 按日期分组统计数据
+        for entry in entries {
+            let entryDate = parseTimestamp(entry.timestamp)
+            let dateKey = DailyStatsData.formatDateFull(entryDate)
+            
+            if var dayStats = dailyStatsDict[dateKey] {
+                dayStats.cost += entry.cost
+                dayStats.inputTokens += entry.inputTokens
+                dayStats.outputTokens += entry.outputTokens
+                dayStats.cacheCreationTokens += entry.cacheCreationTokens
+                dayStats.cacheReadTokens += entry.cacheReadTokens
+                dayStats.totalTokens = dayStats.inputTokens + dayStats.outputTokens + 
+                                      dayStats.cacheCreationTokens + dayStats.cacheReadTokens
+                dayStats.sessions.insert(entry.sessionId)
+                
+                dailyStatsDict[dateKey] = dayStats
+            }
+        }
+        
+        // 转换为排序的数组（最新的日期在前）
+        let sortedDailyStats = dailyStatsDict.values.sorted { $0.date > $1.date }
+        
+        return RecentDaysStats(dailyStats: sortedDailyStats, totalStats: totalStats)
+    }
+    
+    private func parseTimestamp(_ timestamp: String) -> Date {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        
+        if let date = formatter.date(from: timestamp) {
+            return date
+        }
+        
+        // 备用解析器
+        let backupFormatter = DateFormatter()
+        backupFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'"
+        backupFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+        
+        return backupFormatter.date(from: timestamp) ?? Date()
     }
 }
 
