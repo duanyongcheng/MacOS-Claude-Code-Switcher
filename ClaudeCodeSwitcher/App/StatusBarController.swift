@@ -63,10 +63,10 @@ class StatusBarController: NSObject {
         // 添加标题
         let titleItem = NSMenuItem(title: "Claude Code Switcher", action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
-        let titleFont = NSFont.boldSystemFont(ofSize: 13)
+        let titleFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
         let titleAttributes: [NSAttributedString.Key: Any] = [
             .font: titleFont,
-            .foregroundColor: NSColor.secondaryLabelColor
+            .foregroundColor: NSColor.labelColor
         ]
         titleItem.attributedTitle = NSAttributedString(string: "Claude Code Switcher", attributes: titleAttributes)
         menu.addItem(titleItem)
@@ -78,8 +78,8 @@ class StatusBarController: NSObject {
             let currentHeaderItem = NSMenuItem(title: "当前配置", action: nil, keyEquivalent: "")
             currentHeaderItem.isEnabled = false
             let headerAttributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 11),
-                .foregroundColor: NSColor.tertiaryLabelColor
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: NSColor.secondaryLabelColor
             ]
             currentHeaderItem.attributedTitle = NSAttributedString(string: "当前配置", attributes: headerAttributes)
             menu.addItem(currentHeaderItem)
@@ -88,7 +88,7 @@ class StatusBarController: NSObject {
             currentItem.isEnabled = false
             let currentAttributes: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: 13, weight: .medium),
-                .foregroundColor: NSColor.systemGreen
+                .foregroundColor: NSColor.systemBlue
             ]
             currentItem.attributedTitle = NSAttributedString(string: "  ✓ \(current.name)", attributes: currentAttributes)
             menu.addItem(currentItem)
@@ -101,13 +101,18 @@ class StatusBarController: NSObject {
         if providers.isEmpty {
             let noProvidersItem = NSMenuItem(title: "⚠️ 暂无配置的提供商", action: nil, keyEquivalent: "")
             noProvidersItem.isEnabled = false
+            let warningAttributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 13),
+                .foregroundColor: NSColor.systemOrange
+            ]
+            noProvidersItem.attributedTitle = NSAttributedString(string: "⚠️ 暂无配置的提供商", attributes: warningAttributes)
             menu.addItem(noProvidersItem)
         } else {
             let switchHeaderItem = NSMenuItem(title: "切换到", action: nil, keyEquivalent: "")
             switchHeaderItem.isEnabled = false
             let headerAttributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 11),
-                .foregroundColor: NSColor.tertiaryLabelColor
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: NSColor.secondaryLabelColor
             ]
             switchHeaderItem.attributedTitle = NSAttributedString(string: "切换到", attributes: headerAttributes)
             menu.addItem(switchHeaderItem)
@@ -118,14 +123,14 @@ class StatusBarController: NSObject {
                 
                 // 标记当前选中的提供商
                 if provider.id == currentProvider?.id {
-                    title = "  ✓ " + title
-                    attributes[.foregroundColor] = NSColor.systemGreen
+                    title = "  ● " + title
+                    attributes[.foregroundColor] = NSColor.systemBlue
                 } else if provider.isValid {
-                    title = "      " + title
+                    title = "  ○ " + title
                     attributes[.foregroundColor] = NSColor.labelColor
                 } else {
-                    title = "  ⚠️ " + title + " (未配置)"
-                    attributes[.foregroundColor] = NSColor.secondaryLabelColor
+                    title = "  ⚠ " + title + " (未配置)"
+                    attributes[.foregroundColor] = NSColor.tertiaryLabelColor
                 }
                 
                 let item = NSMenuItem(title: title, action: #selector(selectProvider(_:)), keyEquivalent: "")
@@ -157,14 +162,14 @@ class StatusBarController: NSObject {
         let actionsHeaderItem = NSMenuItem(title: "操作", action: nil, keyEquivalent: "")
         actionsHeaderItem.isEnabled = false
         let headerAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11),
-            .foregroundColor: NSColor.tertiaryLabelColor
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor.secondaryLabelColor
         ]
         actionsHeaderItem.attributedTitle = NSAttributedString(string: "操作", attributes: headerAttributes)
         menu.addItem(actionsHeaderItem)
         
         // 添加设置菜单项
-        let settingsItem = NSMenuItem(title: "  ⚙️  设置...", action: #selector(openSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "  ⚙  设置...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         settingsItem.toolTip = "打开设置窗口管理 API 配置"
         menu.addItem(settingsItem)
@@ -172,7 +177,7 @@ class StatusBarController: NSObject {
         menu.addItem(NSMenuItem.separator())
         
         // 添加退出菜单项
-        let quitItem = NSMenuItem(title: "  ⏻  退出", action: #selector(quit), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "  退出", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         quitItem.toolTip = "退出 Claude Code Switcher"
         menu.addItem(quitItem)
