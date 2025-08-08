@@ -184,72 +184,112 @@ struct UsageStatsCard: View {
                         
                         Divider()
                         
-                        // 最近三天表格
+                        // 最近三天详情
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("最近3天详情")
-                                .font(.subheadline)
-                                .font(Font.subheadline.weight(.semibold))
-                                .foregroundColor(.primary)
-                            
-                            // 表格表头
                             HStack {
-                                Text("日期")
-                                    .font(.caption)
-                                    .font(Font.caption.weight(.medium))
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 60, alignment: .leading)
-                                
-                                Text("会话")
-                                    .font(.caption)
-                                    .font(Font.caption.weight(.medium))
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 40, alignment: .trailing)
-                                
-                                Text("Token")
-                                    .font(.caption)
-                                    .font(Font.caption.weight(.medium))
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 80, alignment: .trailing)
-                                
-                                Text("费用")
-                                    .font(.caption)
-                                    .font(Font.caption.weight(.medium))
-                                    .foregroundColor(.secondary)
-                                    .frame(minWidth: 80, alignment: .trailing)
+                                Image(systemName: "calendar.badge.clock")
+                                    .foregroundColor(.blue)
+                                    .font(.subheadline)
+                                Text("最近3天趋势")
+                                    .font(.subheadline)
+                                    .font(Font.subheadline.weight(.semibold))
+                                    .foregroundColor(.primary)
+                                Spacer()
                             }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 6)
-                            .background(Color(.controlBackgroundColor))
-                            .cornerRadius(6)
                             
-                            // 表格数据行
-                            ForEach(stats.dailyStats, id: \.date) { dayStats in
-                                HStack {
-                                    Text(DailyStatsData.formatDate(dayStats.date))
-                                        .font(.caption)
-                                        .foregroundColor(.primary)
-                                        .frame(width: 60, alignment: .leading)
-                                    
-                                    Text("\(dayStats.sessionCount)")
-                                        .font(.caption)
-                                        .foregroundColor(.primary)
-                                        .frame(width: 40, alignment: .trailing)
-                                    
-                                    Text(TokenStatsData.formatNumber(dayStats.totalTokens))
-                                        .font(.caption)
-                                        .foregroundColor(.primary)
-                                        .frame(width: 80, alignment: .trailing)
-                                    
-                                    Text(TokenStatsData.formatCurrency(dayStats.cost))
-                                        .font(.caption)
-                                        .foregroundColor(.primary)
-                                        .frame(minWidth: 80, alignment: .trailing)
+                            // 三天卡片横向布局
+                            HStack(spacing: 8) {
+                                ForEach(stats.dailyStats, id: \.date) { dayStats in
+                                    VStack(spacing: 8) {
+                                        // 日期标题
+                                        VStack(spacing: 2) {
+                                            if Calendar.current.isDateInToday(dayStats.date) {
+                                                Text("今天")
+                                                    .font(.caption)
+                                                    .font(Font.caption.weight(.semibold))
+                                                    .foregroundColor(.blue)
+                                            } else if Calendar.current.isDateInYesterday(dayStats.date) {
+                                                Text("昨天")
+                                                    .font(.caption)
+                                                    .font(Font.caption.weight(.semibold))
+                                                    .foregroundColor(.secondary)
+                                            } else {
+                                                Text("前天")
+                                                    .font(.caption)
+                                                    .font(Font.caption.weight(.semibold))
+                                                    .foregroundColor(.secondary)
+                                            }
+                                            Text(DailyStatsData.formatDate(dayStats.date))
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        
+                                        Divider()
+                                            .padding(.horizontal, 4)
+                                        
+                                        // 数据内容
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            // 会话数
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "bubble.left.and.bubble.right")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.blue)
+                                                Text("\(dayStats.sessionCount)")
+                                                    .font(.caption)
+                                                    .font(Font.caption.weight(.medium))
+                                                Text("会话")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.secondary)
+                                            }
+                                            
+                                            // Token数
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "textformat")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.green)
+                                                Text(formatCompactNumber(dayStats.totalTokens))
+                                                    .font(.caption)
+                                                    .font(Font.caption.weight(.medium))
+                                                Text("Token")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.secondary)
+                                            }
+                                            
+                                            // 费用
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "dollarsign.circle")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.orange)
+                                                Text(TokenStatsData.formatCurrency(dayStats.cost))
+                                                    .font(.caption)
+                                                    .font(Font.caption.weight(.medium))
+                                            }
+                                        }
+                                        
+                                        Spacer()
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(10)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(dayStats.totalTokens > 0 ? 
+                                                (Calendar.current.isDateInToday(dayStats.date) ? 
+                                                    Color.blue.opacity(0.1) : 
+                                                    Color(.controlBackgroundColor)) : 
+                                                Color(.controlBackgroundColor).opacity(0.5))
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(
+                                                Calendar.current.isDateInToday(dayStats.date) && dayStats.totalTokens > 0 ? 
+                                                    Color.blue.opacity(0.3) : 
+                                                    Color.clear, 
+                                                lineWidth: 1
+                                            )
+                                    )
                                 }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(dayStats.totalTokens > 0 ? Color(.controlBackgroundColor).opacity(0.5) : Color.clear)
-                                .cornerRadius(4)
                             }
+                            .frame(height: 120)
                         }
                         
                         // 更新时间
@@ -288,6 +328,16 @@ struct UsageStatsCard: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
         return formatter.string(from: date)
+    }
+    
+    private func formatCompactNumber(_ number: Int) -> String {
+        if number >= 1_000_000 {
+            return String(format: "%.1fM", Double(number) / 1_000_000)
+        } else if number >= 1_000 {
+            return String(format: "%.1fK", Double(number) / 1_000)
+        } else {
+            return "\(number)"
+        }
     }
 }
 
