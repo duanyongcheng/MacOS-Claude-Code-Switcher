@@ -24,28 +24,48 @@ class StatusBarController: NSObject {
     
     private func setupStatusBar() {
         print("setupStatusBar 被调用")
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: 20)  // 设置稍宽一点的固定宽度
         print("statusItem 创建成功")
         
         if let button = statusItem.button {
             print("获取到 statusItem.button")
-            // 尝试使用不同的系统图标
-            if let image = NSImage(systemSymbolName: "brain.head.profile", accessibilityDescription: "Claude Code Switcher") {
+            // 使用自定义图标 ccw.png
+            if let image = NSImage(named: "ccw") {
+                // 调整图标大小以适应状态栏 - 使用 30x30
+                let resizedImage = NSImage(size: NSSize(width: 30, height: 30))
+                resizedImage.lockFocus()
+                image.draw(in: NSRect(x: 0, y: 0, width: 30, height: 30),
+                          from: NSRect(origin: .zero, size: image.size),
+                          operation: .sourceOver,
+                          fraction: 1.0)
+                resizedImage.unlockFocus()
+                
+                button.image = resizedImage
+                button.image?.isTemplate = true
+                print("设置自定义图标: ccw.png 成功 (30x30)")
+            } else if let bundlePath = Bundle.main.path(forResource: "ccw", ofType: "png"),
+                      let image = NSImage(contentsOfFile: bundlePath) {
+                // 调整图标大小以适应状态栏 - 使用 30x30
+                let resizedImage = NSImage(size: NSSize(width: 30, height: 30))
+                resizedImage.lockFocus()
+                image.draw(in: NSRect(x: 0, y: 0, width: 30, height: 30),
+                          from: NSRect(origin: .zero, size: image.size),
+                          operation: .sourceOver,
+                          fraction: 1.0)
+                resizedImage.unlockFocus()
+                
+                button.image = resizedImage
+                button.image?.isTemplate = true
+                print("从 bundle 路径加载图标: ccw.png 成功 (30x30)")
+            } else if let image = NSImage(systemSymbolName: "brain.head.profile", accessibilityDescription: "Claude Code Switcher") {
                 button.image = image
-                print("设置图标: brain.head.profile 成功")
-            } else if let image = NSImage(systemSymbolName: "brain", accessibilityDescription: "Claude Code Switcher") {
-                button.image = image
-                print("设置图标: brain 成功")
-            } else if let image = NSImage(systemSymbolName: "cpu", accessibilityDescription: "Claude Code Switcher") {
-                button.image = image
-                print("设置图标: cpu 成功")
+                button.image?.isTemplate = true
+                print("使用系统图标: brain.head.profile 作为后备")
             } else {
                 // 使用文本作为后备
                 button.title = "🧠"
                 print("使用文本图标: 🧠")
             }
-            button.image?.isTemplate = true
-            print("设置 isTemplate = true")
         } else {
             print("错误: 无法获取 statusItem.button")
         }
