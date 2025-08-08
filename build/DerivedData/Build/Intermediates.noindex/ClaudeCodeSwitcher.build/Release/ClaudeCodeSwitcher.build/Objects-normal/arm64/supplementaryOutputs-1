@@ -1,9 +1,0 @@
-"/Users/bary/code/tools/MacOS-Claude-Code-Switcher/ClaudeCodeSwitcher/App/main.swift":
-  objc-header: "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeCodeSwitcher-Swift.h"
-  swiftmodule: "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeCodeSwitcher.swiftmodule"
-  abi-baseline-json: "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeCodeSwitcher.abi.json"
-  diagnostics: "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeCodeSwitcher-master.dia"
-  dependencies: "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeCodeSwitcher-master.d"
-  swiftsourceinfo: "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeCodeSwitcher.swiftsourceinfo"
-  swiftdoc: "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeCodeSwitcher.swiftdoc"
-  const-values: "/Users/bary/code/tools/MacOS-Claude-Code-Switcher/build/DerivedData/Build/Intermediates.noindex/ClaudeCodeSwitcher.build/Release/ClaudeCodeSwitcher.build/Objects-normal/arm64/ClaudeCodeSwitcher-master.swiftconstvalues"
