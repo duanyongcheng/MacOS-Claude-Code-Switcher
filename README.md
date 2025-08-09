@@ -1,135 +1,191 @@
 # Claude Code Switcher for macOS
 
-一个用于快速切换 Claude Code API 提供商配置的 macOS 状态栏应用。
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-macOS-blue" alt="Platform">
+  <img src="https://img.shields.io/badge/Swift-5.0+-orange" alt="Swift">
+  <img src="https://img.shields.io/badge/macOS-13.0+-green" alt="macOS">
+  <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="License">
+</p>
 
-## 功能特性
+A lightweight macOS status bar application for managing and quickly switching between multiple Claude Code API provider configurations. Seamlessly integrates with Claude Code by automatically syncing to `~/.claude/settings.json`.
 
-- 🔄 **快速切换** - 在状态栏点击即可切换不同的 API 提供商
-- ⚙️ **配置管理** - 添加、编辑、删除自定义 API 提供商
-- 🔄 **自动同步** - 实时同步配置到 `~/.claude/settings.json`
-- 🌐 **代理支持** - 支持 HTTP/HTTPS 代理设置
-- 🔔 **通知反馈** - 切换时显示系统通知
-- 💾 **数据持久化** - 配置保存在本地，重启后仍然有效
+## ✨ Features
 
-## 系统要求
+- 🔄 **Quick Provider Switching** - Switch between different API providers with a single click from the status bar
+- 🎨 **Custom Provider Icons** - Set unique icons for each API provider for easy visual identification
+- 📊 **Token Usage Statistics** - Track and visualize API token usage for the last 3 days with detailed breakdowns
+- ⚙️ **Auto Configuration Sync** - Automatically syncs with Claude Code's settings.json
+- 🌐 **Proxy Support** - Configure HTTP/HTTPS proxy settings per provider
+- 🔔 **Switch Notifications** - Get notified when switching between providers
+- 🎯 **Native macOS Experience** - Built with SwiftUI for a clean, modern interface
 
-- macOS 13.0 或更高版本
-- Xcode 15.0 或更高版本（仅用于编译）
+## 📸 Screenshots
 
-## 构建说明
+<!-- Add screenshots here when available -->
+<details>
+<summary>View Screenshots</summary>
 
-1. **克隆项目**
-   ```bash
-   git clone <repository-url>
-   cd MacOS-Claude-Code-Switcher
-   ```
+### Status Bar Menu
+<!-- ![Status Bar Menu](screenshots/statusbar-menu.png) -->
 
-2. **使用 Xcode 打开项目**
-   ```bash
-   open ClaudeCodeSwitcher.xcodeproj
-   ```
+### Settings Window
+<!-- ![Settings Window](screenshots/settings.png) -->
 
-3. **编译运行**
-   - 在 Xcode 中选择目标设备为 "My Mac"
-   - 按 `Cmd + R` 运行项目
-   - 或者按 `Cmd + B` 仅构建项目
+### Token Usage Statistics
+<!-- ![Usage Statistics](screenshots/statistics.png) -->
 
-4. **发布构建**
-   ```bash
-   # 在项目根目录执行
-   xcodebuild -project ClaudeCodeSwitcher.xcodeproj -scheme ClaudeCodeSwitcher -configuration Release clean build
-   ```
+</details>
 
-## 使用方法
+## 🚀 Installation
 
-### 初次设置
+### Option 1: Download Pre-built Release
+1. Download the latest release from the [Releases](https://github.com/yourusername/MacOS-Claude-Code-Switcher/releases) page
+2. Unzip the downloaded file
+3. Move `ClaudeCodeSwitcher.app` to your Applications folder
+4. Launch the app - it will appear in your status bar
 
-1. 启动应用后，在状态栏会出现一个大脑图标
-2. 点击图标，选择"设置..."打开配置窗口
-3. 在"API 提供商"标签页中点击"添加提供商"
-4. 填写提供商信息：
-   - **名称**: 自定义名称（如 "OpenAI", "Claude Official" 等）
-   - **API URL**: API 端点地址
-   - **API 密钥**: 对应的 API 密钥
-   - **大模型**: （可选）指定大模型名称
-   - **小模型**: （可选）指定小模型名称
+### Option 2: Build from Source
 
-### 切换提供商
+#### Prerequisites
+- macOS 13.0 or later
+- Xcode 14.0 or later
+- Swift 5.0 or later
 
-1. 点击状态栏图标
-2. 从下拉菜单中选择要使用的 API 提供商
-3. 系统会显示切换成功的通知
-4. Claude Code 将自动使用新的配置
+#### Build Steps
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/MacOS-Claude-Code-Switcher.git
+cd MacOS-Claude-Code-Switcher
 
-### 全局设置
+# Build using the provided script
+./build.sh
 
-在设置窗口的"全局设置"标签页中可以配置：
-- **自动更新**: 是否启用自动更新
-- **代理设置**: HTTP/HTTPS 代理服务器和端口
-
-## 配置文件
-
-应用会将配置同步到 `~/.claude/settings.json`，Claude Code 会自动读取这个文件中的配置。
-
-配置文件结构：
-```json
-{
-  "env": {
-    "ANTHROPIC_AUTH_TOKEN": "your-api-key",
-    "ANTHROPIC_BASE_URL": "your-api-url",
-    "ANTHROPIC_MODEL": "large-model-name",
-    "ANTHROPIC_SMALL_FAST_MODEL": "small-model-name",
-    "DISABLE_AUTOUPDATER": "0",
-    "HTTPS_PROXY": "proxy-url",
-    "HTTP_PROXY": "proxy-url"
-  }
-}
+# Or open in Xcode
+open ClaudeCodeSwitcher.xcodeproj
+# Then press Cmd+B to build and Cmd+R to run
 ```
 
-## 故障排除
+## 🎯 Usage
 
-### 应用无法启动
-- 检查 macOS 版本是否符合要求
-- 确保已授予必要的权限（文件访问、通知）
+### Getting Started
+1. **Launch the app** - The app icon will appear in your macOS status bar
+2. **Add API Providers** - Click the status bar icon and select "Settings" to add your API providers
+3. **Configure Providers** - For each provider, set:
+   - Provider name
+   - API Base URL
+   - API Key
+   - Default models
+   - Custom icon (optional)
+   - Proxy settings (optional)
+4. **Switch Providers** - Click the status bar icon and select any provider to activate it
 
-### 配置同步失败
-- 检查 `~/.claude` 目录是否存在且可写
-- 确保没有其他进程正在使用 settings.json 文件
+### Features in Detail
 
-### 通知不显示
-- 在系统偏好设置 > 通知中启用应用的通知权限
+#### Custom Icons
+- Right-click on any provider in settings
+- Select "Set Custom Icon"
+- Choose an image file (PNG, JPG, etc.)
+- The icon will appear in the status bar when that provider is active
 
-## 开发说明
+#### Token Usage Statistics
+- Click "Usage Statistics" from the status bar menu
+- View detailed token usage for the last 3 days
+- See breakdown by model and date
+- Track both prompt and completion tokens
 
-项目结构：
+#### Proxy Configuration
+- In provider settings, expand "Advanced Options"
+- Enter HTTP/HTTPS proxy URLs
+- Proxy settings are applied per provider
+
+## 🛠 Development
+
+### Project Structure
 ```
-ClaudeCodeSwitcher/
-├── App/                    # 应用主体
-│   ├── main.swift         # 应用入口
-│   ├── AppDelegate.swift  # 应用委托
-│   ├── StatusBarController.swift  # 状态栏控制
-│   └── SettingsWindowController.swift  # 设置窗口
-├── Models/                # 数据模型
-│   ├── APIProvider.swift  # API 提供商模型
-│   └── ClaudeConfig.swift # Claude 配置模型
-├── Services/              # 业务服务
-│   └── ConfigManager.swift  # 配置管理
-├── Views/                 # 用户界面
-│   └── SettingsView.swift   # SwiftUI 设置界面
-└── Resources/             # 资源文件
-    ├── Info.plist
-    ├── Assets.xcassets
-    └── ClaudeCodeSwitcher.entitlements
+MacOS-Claude-Code-Switcher/
+├── App/                    # Application lifecycle and window management
+├── Models/                 # Data models (APIProvider, ClaudeConfig)
+├── Services/              # Business logic (ConfigManager, TokenStatistics)
+├── Views/                 # SwiftUI views and UI components
+├── Resources/             # Assets, icons, and Info.plist
+└── Tests/                 # Unit and integration tests
 ```
 
-## 许可证
+### Key Technologies
+- **SwiftUI** - Modern declarative UI framework
+- **AppKit** - Status bar integration
+- **Combine** - Reactive programming for state management
+- **UserDefaults** - Local configuration storage
+- **JSONEncoder/Decoder** - Claude settings synchronization
 
-[请添加适当的许可证信息]
+### Building for Release
+```bash
+# Create a release build
+./build.sh
 
-## 贡献
+# Run tests
+./test.sh
 
-欢迎提交 Issue 和 Pull Request！
+# The built app will be in build/ClaudeCodeSwitcher.app
+```
 
-## 支持
+## 🤝 Contributing
 
-如有问题请创建 Issue 或联系开发者。
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+### How to Contribute
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+### Development Guidelines
+- Follow Swift naming conventions and style guidelines
+- Add tests for new features
+- Update documentation as needed
+- Ensure the app builds without warnings
+
+## 📝 Requirements
+
+- **macOS**: 13.0 (Ventura) or later
+- **Storage**: ~10 MB
+- **Claude Code**: Compatible with all versions that use `~/.claude/settings.json`
+
+## 🔧 Troubleshooting
+
+### App doesn't appear in status bar
+- Check if the app is running in Activity Monitor
+- Try restarting the app
+- Ensure you have granted necessary permissions
+
+### Configuration not syncing with Claude Code
+- Verify `~/.claude/settings.json` exists
+- Check file permissions
+- Restart both Claude Code Switcher and Claude Code
+
+### Custom icons not displaying
+- Ensure image files are in supported formats (PNG, JPG, HEIC)
+- Try using smaller image files (< 1MB recommended)
+- Reset the icon and set it again
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- Built for the [Claude Code](https://claude.ai/code) community
+- Inspired by the need for quick API provider switching
+- Thanks to all contributors and users
+
+## 📮 Contact & Support
+
+- **Issues**: [GitHub Issues](https://github.com/yourusername/MacOS-Claude-Code-Switcher/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/yourusername/MacOS-Claude-Code-Switcher/discussions)
+
+---
+
+<p align="center">
+  Made with ❤️ for the Claude Code community
+</p>

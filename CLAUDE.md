@@ -6,6 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Claude Code Switcher is a macOS status bar application for quickly switching between Claude Code API provider configurations. It provides a convenient GUI to manage multiple API providers and automatically syncs configurations to `~/.claude/settings.json`.
 
+### Key Features
+- **Quick Provider Switching**: Switch between different API providers directly from the status bar
+- **Custom Provider Icons**: Set custom icons for each API provider for easy visual identification
+- **Token Usage Statistics**: Track and display API token usage for the last 3 days
+- **Configuration Management**: Automatic sync with Claude Code's settings.json
+- **Proxy Support**: Configure HTTP/HTTPS proxy settings per provider
+
 ## Key Commands
 
 ### Building the Project
@@ -46,8 +53,10 @@ The application follows a clean MVC architecture with SwiftUI for modern UI comp
 ### Key Components
 - **ConfigManager**: Singleton service managing API provider configuration and Claude settings sync
 - **StatusBarController**: Handles status bar menu and provider switching
-- **APIProvider**: Data model representing API provider configurations (name, URL, key, models)
+- **APIProvider**: Data model representing API provider configurations (name, URL, key, models, custom icon)
 - **ClaudeConfig**: Model matching Claude Code's settings.json structure
+- **TokenStatistics**: Service for tracking and displaying API token usage statistics
+- **AppIconManager**: Manages custom icons for API providers and handles icon storage
 
 ### Configuration Sync Flow
 1. User modifies provider settings in UI
@@ -92,3 +101,12 @@ The app generates configuration compatible with Claude Code's expected format:
 - Configuration changes trigger NotificationCenter events
 - Proxy settings support both HTTP and HTTPS with automatic URL formatting
 - Preserves existing Claude configuration fields when syncing
+- Custom icons stored as base64 in UserDefaults
+- Token statistics calculated from Claude Code's conversation history files
+- Status bar icon changes based on selected provider's custom icon
+
+### New Features (Recent Updates)
+- **Custom Provider Icons**: Each API provider can have a custom icon displayed in the status bar
+- **Token Usage Statistics**: View detailed token usage for the last 3 days, broken down by model
+- **Enhanced UI**: Improved menu styling with visual separators and better organization
+- **Configuration Change Notifications**: System notifications when provider is switched
