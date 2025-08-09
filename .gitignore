@@ -82,3 +82,6 @@ dist/
 *.tmp
 *.temp
 *~
+
+# Project documentation
+CLAUDE.md

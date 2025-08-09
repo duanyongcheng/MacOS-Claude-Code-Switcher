@@ -21,18 +21,14 @@ A lightweight macOS status bar application for managing and quickly switching be
 
 ## 📸 Screenshots
 
-<!-- Add screenshots here when available -->
 <details>
 <summary>View Screenshots</summary>
 
-### Status Bar Menu
-<!-- ![Status Bar Menu](screenshots/statusbar-menu.png) -->
-
 ### Settings Window
-<!-- ![Settings Window](screenshots/settings.png) -->
+![Settings Window](picture/settings.png)
 
-### Token Usage Statistics
-<!-- ![Usage Statistics](screenshots/statistics.png) -->
+### Status Bar Menu
+![Status Bar Menu](picture/status-bar.png)
 
 </details>
 
