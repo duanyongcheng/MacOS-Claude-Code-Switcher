@@ -136,23 +136,20 @@ class ConfigManager: ObservableObject {
                 try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
             }
             
-            // 读取现有配置（如果存在）
-            var existingConfig: ClaudeConfig?
+            // 读取现有配置作为原始 JSON（保留所有字段）
+            var existingJson: [String: Any] = [:]
             if FileManager.default.fileExists(atPath: claudeConfigPath.path) {
                 let data = try Data(contentsOf: claudeConfigPath)
-                existingConfig = try JSONDecoder().decode(ClaudeConfig.self, from: data)
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    existingJson = json
+                }
             }
             
-            // 构建新配置
-            let config = buildClaudeConfig(existing: existingConfig)
+            // 更新仅由 Switcher 管理的字段
+            updateSwitcherManagedFields(&existingJson)
             
             // 写入配置文件
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = .prettyPrinted
-            if #available(macOS 10.15, *) {
-                encoder.outputFormatting.insert(.withoutEscapingSlashes)
-            }
-            let data = try encoder.encode(config)
+            let data = try JSONSerialization.data(withJSONObject: existingJson, options: [.prettyPrinted, .sortedKeys])
             try data.write(to: claudeConfigPath)
             
             print("已同步配置到 Claude 配置文件: \(claudeConfigPath.path)")
@@ -162,24 +159,47 @@ class ConfigManager: ObservableObject {
         }
     }
     
-    private func buildClaudeConfig(existing: ClaudeConfig?) -> ClaudeConfig {
+    private func updateSwitcherManagedFields(_ json: inout [String: Any]) {
+        // 确保 env 对象存在
+        var env = (json["env"] as? [String: Any]) ?? [:]
+        
+        // 只更新 Switcher 管理的字段
+        if let provider = currentProvider {
+            env["ANTHROPIC_API_KEY"] = provider.key
+            env["ANTHROPIC_BASE_URL"] = provider.url
+            
+            // 可选字段：只在有值时设置，否则移除
+            if let largeModel = provider.largeModel, !largeModel.isEmpty {
+                env["ANTHROPIC_MODEL"] = largeModel
+            } else {
+                env.removeValue(forKey: "ANTHROPIC_MODEL")
+            }
+            
+            if let smallModel = provider.smallModel, !smallModel.isEmpty {
+                env["ANTHROPIC_SMALL_FAST_MODEL"] = smallModel
+            } else {
+                env.removeValue(forKey: "ANTHROPIC_SMALL_FAST_MODEL")
+            }
+        } else {
+            // 没有当前提供商时，清空这些字段
+            env["ANTHROPIC_API_KEY"] = ""
+            env["ANTHROPIC_BASE_URL"] = ""
+            env.removeValue(forKey: "ANTHROPIC_MODEL")
+            env.removeValue(forKey: "ANTHROPIC_SMALL_FAST_MODEL")
+        }
+        
+        // 处理代理设置
         let proxyUrl = buildProxyUrl()
+        if !proxyUrl.isEmpty {
+            env["HTTPS_PROXY"] = proxyUrl
+            env["HTTP_PROXY"] = proxyUrl
+        } else {
+            env.removeValue(forKey: "HTTPS_PROXY")
+            env.removeValue(forKey: "HTTP_PROXY")
+        }
         
-        let env = ClaudeConfig.ClaudeEnvironment(
-            ANTHROPIC_API_KEY: currentProvider?.key ?? "",
-            ANTHROPIC_BASE_URL: currentProvider?.url ?? "",
-            ANTHROPIC_MODEL: currentProvider?.largeModel,
-            ANTHROPIC_SMALL_FAST_MODEL: currentProvider?.smallModel,
-            CLAUDE_CODE_MAX_OUTPUT_TOKENS: existing?.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,
-            CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: existing?.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
-            HTTPS_PROXY: proxyUrl.isEmpty ? nil : proxyUrl,
-            HTTP_PROXY: proxyUrl.isEmpty ? nil : proxyUrl
-        )
-        
-        return ClaudeConfig(
-            env: env,
-            feedbackSurveyState: existing?.feedbackSurveyState
-        )
+        // 更新 env 对象
+        json["env"] = env
     }
     
     private func buildProxyUrl() -> String {
