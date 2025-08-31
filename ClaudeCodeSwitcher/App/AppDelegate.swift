@@ -59,6 +59,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowMenuItem.title = "窗口"
         let windowMenu = NSMenu(title: "窗口")
         windowMenu.addItem(NSMenuItem(title: "最小化", action: #selector(NSWindow.miniaturize(_:)), keyEquivalent: "m"))
+        windowMenu.addItem(NSMenuItem(title: "关闭", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
         windowMenuItem.submenu = windowMenu
         mainMenu.addItem(windowMenuItem)
         
