@@ -189,10 +189,16 @@ class StatusBarController: NSObject {
         menu.addItem(actionsHeaderItem)
         
         // 添加设置菜单项
-        let settingsItem = NSMenuItem(title: "  ⚙  设置...", action: #selector(openSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "  ⚙️  设置...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         settingsItem.toolTip = "打开设置窗口管理 API 配置"
         menu.addItem(settingsItem)
+        
+        // 添加关于菜单项
+        let aboutItem = NSMenuItem(title: "  ℹ️  关于", action: #selector(showAbout), keyEquivalent: "")
+        aboutItem.target = self
+        aboutItem.toolTip = "关于 Claude Code Switcher"
+        menu.addItem(aboutItem)
         
         menu.addItem(NSMenuItem.separator())
         
@@ -221,6 +227,37 @@ class StatusBarController: NSObject {
         }
         settingsWindowController?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    @objc private func showAbout() {
+        let alert = NSAlert()
+        alert.messageText = "关于 Claude Code Switcher"
+        alert.informativeText = """
+Claude Code Switcher 是一个帮助您快速切换不同 Claude API 配置的工具。
+
+🔗 开源仓库
+https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
+
+✨ 特性
+• 快速切换多个 API 配置
+• 实时监控 Claude 进程状态
+• 使用量统计和分析
+• 代理设置支持
+• 开机自动启动
+
+感谢您的使用！
+"""
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "访问仓库")
+        alert.addButton(withTitle: "确定")
+        
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            // 打开 GitHub 仓库
+            if let url = URL(string: "https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher") {
+                NSWorkspace.shared.open(url)
+            }
+        }
     }
     
     @objc private func quit() {

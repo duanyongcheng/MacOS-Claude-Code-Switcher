@@ -19,6 +19,7 @@ class ConfigManager: ObservableObject {
     @Published var autoUpdate: Bool = true
     @Published var proxyHost: String = ""
     @Published var proxyPort: String = ""
+    @Published var autoStartup: Bool = false
     
     private let userDefaults = UserDefaults.standard
     private let claudeConfigPath: URL
@@ -93,10 +94,25 @@ class ConfigManager: ObservableObject {
         postConfigChangeNotification()
     }
     
-    func updateGlobalSettings(autoUpdate: Bool, proxyHost: String, proxyPort: String) {
+    func updateGlobalSettings(autoUpdate: Bool, proxyHost: String, proxyPort: String, autoStartup: Bool) {
         self.autoUpdate = autoUpdate
         self.proxyHost = proxyHost
         self.proxyPort = proxyPort
+        
+        // 更新开机自启动设置
+        let wasAutoStartup = self.autoStartup
+        self.autoStartup = autoStartup
+        
+        if wasAutoStartup != autoStartup {
+            updateLaunchAgentStatus(autoStartup)
+        } else if autoStartup {
+            // 如果开机自启已启用但状态不正确，重新安装
+            if !checkLaunchAgentStatus() {
+                print("检测到 Launch Agent 状态不正确，重新安装...")
+                updateLaunchAgentStatus(true)
+            }
+        }
+        
         saveConfiguration()
         syncToClaudeConfig()
         postConfigChangeNotification()
@@ -222,6 +238,7 @@ class ConfigManager: ObservableObject {
             proxyHost = ""
             proxyPort = ""
         }
+        autoStartup = userDefaults.bool(forKey: "autoStartup")
     }
     
     private func saveConfiguration() {
@@ -261,6 +278,7 @@ class ConfigManager: ObservableObject {
         userDefaults.set(autoUpdate, forKey: "autoUpdate")
         userDefaults.set(proxyHost, forKey: "proxyHost")
         userDefaults.set(proxyPort, forKey: "proxyPort")
+        userDefaults.set(autoStartup, forKey: "autoStartup")
         
         print("配置已保存到 UserDefaults 备用")
     }
@@ -355,6 +373,207 @@ class ConfigManager: ObservableObject {
     
     private func postConfigChangeNotification() {
         NotificationCenter.default.post(name: .configDidChange, object: nil)
+    }
+    
+    // MARK: - Launch Agent Management
+    
+    private func updateLaunchAgentStatus(_ shouldAutoStart: Bool) {
+        if shouldAutoStart {
+            installLaunchAgent()
+        } else {
+            removeLaunchAgent()
+        }
+    }
+    
+    // 检查开机自启状态
+    func checkLaunchAgentStatus() -> Bool {
+        let launchAgentsDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents")
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.example.ClaudeCodeSwitcher"
+        let plistPath = launchAgentsDir.appendingPathComponent("\(bundleIdentifier).plist")
+        
+        // 检查 plist 文件是否存在
+        guard FileManager.default.fileExists(atPath: plistPath.path) else {
+            return false
+        }
+        
+        // 检查 launchctl 是否已加载
+        let task = Process()
+        task.launchPath = "/bin/launchctl"
+        task.arguments = ["list", bundleIdentifier]
+        
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = pipe
+        
+        task.launch()
+        task.waitUntilExit()
+        
+        return task.terminationStatus == 0
+    }
+    
+    private func installLaunchAgent() {
+        let launchAgentsDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents")
+        
+        // 使用正确的 bundle identifier，避免硬编码
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.example.ClaudeCodeSwitcher"
+        let plistPath = launchAgentsDir.appendingPathComponent("\(bundleIdentifier).plist")
+        
+        print("正在安装 Launch Agent...")
+        print("Bundle Identifier: \(bundleIdentifier)")
+        print("Plist 路径: \(plistPath.path)")
+        
+        // 确保 LaunchAgents 目录存在
+        do {
+            try FileManager.default.createDirectory(at: launchAgentsDir, withIntermediateDirectories: true)
+            print("LaunchAgents 目录创建成功")
+        } catch {
+            print("创建 LaunchAgents 目录失败: \(error)")
+            return
+        }
+        
+        // 获取应用程序路径和可执行文件名称
+        guard let bundlePath = Bundle.main.bundlePath as String? else {
+            print("无法获取应用程序路径")
+            return
+        }
+        
+        guard let executableName = Bundle.main.executablePath?.components(separatedBy: "/").last else {
+            print("无法获取可执行文件名称")
+            return
+        }
+        
+        let executablePath = "\(bundlePath)/Contents/MacOS/\(executableName)"
+        
+        print("应用路径: \(bundlePath)")
+        print("可执行文件路径: \(executablePath)")
+        print("可执行文件名称: \(executableName)")
+        
+        let plistContent = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key>
+            <string>\(bundleIdentifier)</string>
+            <key>ProgramArguments</key>
+            <array>
+                <string>\(executablePath)</string>
+            </array>
+            <key>RunAtLoad</key>
+            <true/>
+            <key>KeepAlive</key>
+            <false/>
+            <key>LSUIElement</key>
+            <true/>
+            <key>WorkingDirectory</key>
+            <string>\(bundlePath)</string>
+        </dict>
+        </plist>
+        """
+        
+        do {
+            try plistContent.write(to: plistPath, atomically: true, encoding: .utf8)
+            print("Launch Agent plist 文件写入成功: \(plistPath.path)")
+            
+            // 验证文件是否真的写入了
+            if FileManager.default.fileExists(atPath: plistPath.path) {
+                print("Plist 文件验证成功")
+            } else {
+                print("Plist 文件验证失败 - 文件不存在")
+                return
+            }
+            
+            // 先卸载旧的 Launch Agent（如果存在）
+            print("正在卸载旧的 Launch Agent...")
+            let unloadTask = Process()
+            unloadTask.launchPath = "/bin/launchctl"
+            unloadTask.arguments = ["unload", plistPath.path]
+            unloadTask.launch()
+            unloadTask.waitUntilExit()
+            print("卸载操作完成，退出码: \(unloadTask.terminationStatus)")
+            
+            // 加载新的 Launch Agent
+            print("正在加载新的 Launch Agent...")
+            let loadTask = Process()
+            loadTask.launchPath = "/bin/launchctl"
+            loadTask.arguments = ["load", plistPath.path]
+            loadTask.launch()
+            loadTask.waitUntilExit()
+            
+            if loadTask.terminationStatus == 0 {
+                print("Launch Agent 加载成功")
+                
+                // 验证是否真的加载了
+                let verifyTask = Process()
+                verifyTask.launchPath = "/bin/launchctl"
+                verifyTask.arguments = ["list", bundleIdentifier]
+                verifyTask.launch()
+                verifyTask.waitUntilExit()
+                
+                if verifyTask.terminationStatus == 0 {
+                    print("Launch Agent 验证成功 - 已在 launchctl 列表中")
+                } else {
+                    print("Launch Agent 验证失败 - 不在 launchctl 列表中")
+                }
+                
+            } else {
+                print("Launch Agent 加载失败，退出码: \(loadTask.terminationStatus)")
+                
+                // 获取错误输出
+                let errorTask = Process()
+                errorTask.launchPath = "/bin/launchctl"
+                errorTask.arguments = ["load", plistPath.path]
+                let errorPipe = Pipe()
+                errorTask.standardError = errorPipe
+                errorTask.launch()
+                errorTask.waitUntilExit()
+                
+                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                if let errorMessage = String(data: errorData, encoding: .utf8) {
+                    print("Launch Agent 错误信息: \(errorMessage)")
+                }
+            }
+            
+        } catch {
+            print("Launch Agent 安装失败: \(error)")
+        }
+    }
+    
+    private func removeLaunchAgent() {
+        let launchAgentsDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents")
+        
+        // 使用与安装时相同的 bundle identifier
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.example.ClaudeCodeSwitcher"
+        let plistPath = launchAgentsDir.appendingPathComponent("\(bundleIdentifier).plist")
+        
+        // 卸载 Launch Agent
+        let task = Process()
+        task.launchPath = "/bin/launchctl"
+        task.arguments = ["unload", plistPath.path]
+        task.launch()
+        task.waitUntilExit()
+        
+        // 删除 plist 文件
+        do {
+            try FileManager.default.removeItem(at: plistPath)
+            print("Launch Agent 移除成功")
+        } catch {
+            print("Launch Agent 移除失败: \(error)")
+        }
+        
+        // 同时清理旧的 plist 文件（如果存在）
+        let oldPlistPath = launchAgentsDir.appendingPathComponent("com.example.ClaudeCodeSwitcher.plist")
+        if FileManager.default.fileExists(atPath: oldPlistPath.path) {
+            do {
+                try FileManager.default.removeItem(at: oldPlistPath)
+                print("已清理旧的 Launch Agent 文件")
+            } catch {
+                print("清理旧 Launch Agent 文件失败: \(error)")
+            }
+        }
     }
 }
 
