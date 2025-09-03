@@ -53,11 +53,14 @@ struct SettingsView: View {
                 ProxySettingsCard(
                     proxyHost: $configManager.proxyHost,
                     proxyPort: $configManager.proxyPort,
+                    autoStartup: $configManager.autoStartup,
+                    launchAgentStatus: configManager.checkLaunchAgentStatus(),
                     onSave: {
                         configManager.updateGlobalSettings(
                             autoUpdate: configManager.autoUpdate,
                             proxyHost: configManager.proxyHost,
-                            proxyPort: configManager.proxyPort
+                            proxyPort: configManager.proxyPort,
+                            autoStartup: configManager.autoStartup
                         )
                     }
                 )
@@ -696,14 +699,75 @@ struct ClaudeProcessCard: View {
 struct ProxySettingsCard: View {
     @Binding var proxyHost: String
     @Binding var proxyPort: String
+    @Binding var autoStartup: Bool
+    let launchAgentStatus: Bool
     let onSave: () -> Void
+    @StateObject private var configManager = ConfigManager.shared
     
     var body: some View {
         CardView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("代理设置")
+            VStack(alignment: .leading, spacing: 16) {
+                Text("应用设置")
                     .font(.headline)
                     .foregroundColor(.primary)
+                
+                // 开机自启动设置
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Image(systemName: "power")
+                            .foregroundColor(.green)
+                            .font(.title2)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("开机自动启动")
+                                .font(.subheadline)
+                                .font(Font.subheadline.weight(.medium))
+                            
+                            Text("启用后应用将在系统启动时自动运行")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Toggle("", isOn: $autoStartup)
+                            .toggleStyle(SwitchToggleStyle())
+                    }
+                    
+                    // 显示 Launch Agent 状态
+                    if autoStartup {
+                        HStack {
+                            Image(systemName: launchAgentStatus ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                .foregroundColor(launchAgentStatus ? .green : .orange)
+                                .font(.caption)
+                            
+                            Text(launchAgentStatus ? "Launch Agent 已正确安装" : "Launch Agent 未正确安装，点击保存修复")
+                                .font(.caption)
+                                .foregroundColor(launchAgentStatus ? .green : .orange)
+                            
+                            Spacer()
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(launchAgentStatus ? Color.green.opacity(0.1) : Color.orange.opacity(0.1))
+                        )
+                    }
+                }
+                
+                Divider()
+                
+                // 代理设置标题
+                HStack {
+                    Image(systemName: "network")
+                        .foregroundColor(.blue)
+                        .font(.title2)
+                    
+                    Text("代理设置")
+                        .font(.subheadline)
+                        .font(Font.subheadline.weight(.medium))
+                }
                 
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -726,8 +790,13 @@ struct ProxySettingsCard: View {
                     }
                 }
                 
-                Button("保存代理设置") {
+                Button("保存设置") {
                     onSave()
+                    // 强制刷新界面以显示最新的 Launch Agent 状态
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        // 触发界面重新渲染
+                        let _ = configManager.checkLaunchAgentStatus()
+                    }
                 }
                 .buttonStyle(PrimaryButtonStyle())
             }
