@@ -2,6 +2,15 @@ import Foundation
 import Combine
 import AppKit
 
+// MARK: - App Configuration Model
+struct AppConfig: Codable {
+    let providers: [APIProvider]
+    let currentProvider: APIProvider?
+    let autoUpdate: Bool
+    let proxyHost: String
+    let proxyPort: String
+}
+
 class ConfigManager: ObservableObject {
     static let shared = ConfigManager()
     
@@ -14,10 +23,12 @@ class ConfigManager: ObservableObject {
     
     private let userDefaults = UserDefaults.standard
     private let claudeConfigPath: URL
+    private let appConfigPath: URL
     
     private init() {
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
         claudeConfigPath = homeDir.appendingPathComponent(".claude/settings.json")
+        appConfigPath = homeDir.appendingPathComponent(".config/ccs/claude-switch.json")
         loadConfiguration()
     }
     
@@ -109,8 +120,59 @@ class ConfigManager: ObservableObject {
     
     // MARK: - Private Methods
     
-    private func loadConfiguration() {
-        // 从 UserDefaults 加载配置
+    // MARK: - File Management
+    
+    private func ensureConfigDirectoryExists() throws {
+        let configDir = appConfigPath.deletingLastPathComponent()
+        if !FileManager.default.fileExists(atPath: configDir.path) {
+            try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        }
+    }
+    
+    private func atomicWrite(to url: URL, data: Data) throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempFile = tempDir.appendingPathComponent(UUID().uuidString)
+        
+        // 写入临时文件
+        try data.write(to: tempFile)
+        
+        // 原子性替换
+        try FileManager.default.moveItem(at: tempFile, to: url)
+    }
+    
+    private func loadConfigFromFile() throws -> AppConfig? {
+        guard FileManager.default.fileExists(atPath: appConfigPath.path) else {
+            return nil
+        }
+        
+        let data = try Data(contentsOf: appConfigPath)
+        return try JSONDecoder().decode(AppConfig.self, from: data)
+    }
+    
+    private func saveConfigToFile(_ config: AppConfig) throws {
+        try ensureConfigDirectoryExists()
+        let data = try JSONEncoder().encode(config)
+        try atomicWrite(to: appConfigPath, data: data)
+        
+        // 设置文件权限为仅用户可读写
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: appConfigPath.path)
+    }
+    
+    private func migrateFromUserDefaults() throws {
+        // 检查是否有 UserDefaults 配置
+        guard userDefaults.data(forKey: "providers") != nil else {
+            return // 没有需要迁移的配置
+        }
+        
+        print("发现 UserDefaults 配置，开始迁移到 JSON 文件...")
+        
+        // 从 UserDefaults 读取配置
+        var providers: [APIProvider] = []
+        var currentProvider: APIProvider?
+        let autoUpdate = userDefaults.bool(forKey: "autoUpdate")
+        let proxyHost = userDefaults.string(forKey: "proxyHost") ?? ""
+        let proxyPort = userDefaults.string(forKey: "proxyPort") ?? ""
+        
         if let data = userDefaults.data(forKey: "providers"),
            let decodedProviders = try? JSONDecoder().decode([APIProvider].self, from: data) {
             providers = decodedProviders
@@ -121,14 +183,87 @@ class ConfigManager: ObservableObject {
             currentProvider = decodedProvider
         }
         
-        autoUpdate = userDefaults.bool(forKey: "autoUpdate")
-        proxyHost = userDefaults.string(forKey: "proxyHost") ?? ""
-        proxyPort = userDefaults.string(forKey: "proxyPort") ?? ""
+        // 创建配置对象
+        let config = AppConfig(
+            providers: providers,
+            currentProvider: currentProvider,
+            autoUpdate: autoUpdate,
+            proxyHost: proxyHost,
+            proxyPort: proxyPort
+        )
+        
+        // 保存到文件
+        try saveConfigToFile(config)
+        
+        // 清理 UserDefaults
+        userDefaults.removeObject(forKey: "providers")
+        userDefaults.removeObject(forKey: "currentProvider")
+        userDefaults.removeObject(forKey: "autoUpdate")
+        userDefaults.removeObject(forKey: "proxyHost")
+        userDefaults.removeObject(forKey: "proxyPort")
+        
+        print("配置迁移完成")
+    }
+    
+    private func loadConfiguration() {
+        // 首先尝试从文件加载配置
+        if let config = try? loadConfigFromFile() {
+            providers = config.providers
+            currentProvider = config.currentProvider
+            autoUpdate = config.autoUpdate
+            proxyHost = config.proxyHost
+            proxyPort = config.proxyPort
+            print("从配置文件加载配置成功")
+            return
+        }
+        
+        // 如果文件不存在，尝试从 UserDefaults 迁移
+        do {
+            try migrateFromUserDefaults()
+            // 迁移后重新加载
+            if let config = try? loadConfigFromFile() {
+                providers = config.providers
+                currentProvider = config.currentProvider
+                autoUpdate = config.autoUpdate
+                proxyHost = config.proxyHost
+                proxyPort = config.proxyPort
+                print("从 UserDefaults 迁移配置成功")
+            }
+        } catch {
+            print("迁移配置失败，使用默认配置: \(error)")
+            // 使用默认配置
+            providers = []
+            currentProvider = nil
+            autoUpdate = true
+            proxyHost = ""
+            proxyPort = ""
+        }
         autoStartup = userDefaults.bool(forKey: "autoStartup")
     }
     
     private func saveConfiguration() {
-        // 保存到 UserDefaults
+        // 创建配置对象
+        let config = AppConfig(
+            providers: providers,
+            currentProvider: currentProvider,
+            autoUpdate: autoUpdate,
+            proxyHost: proxyHost,
+            proxyPort: proxyPort
+        )
+        
+        // 保存到文件
+        do {
+            try saveConfigToFile(config)
+            print("配置保存到文件成功")
+        } catch {
+            print("保存配置到文件失败: \(error)")
+            // 如果文件保存失败，尝试保存到 UserDefaults 作为备用
+            saveToUserDefaultsFallback()
+        }
+    }
+    
+    private func saveToUserDefaultsFallback() {
+        // 备用方案：保存到 UserDefaults
         if let data = try? JSONEncoder().encode(providers) {
             userDefaults.set(data, forKey: "providers")
         }
@@ -144,6 +279,8 @@ class ConfigManager: ObservableObject {
         userDefaults.set(proxyHost, forKey: "proxyHost")
         userDefaults.set(proxyPort, forKey: "proxyPort")
         userDefaults.set(autoStartup, forKey: "autoStartup")
+        
+        print("配置已保存到 UserDefaults 备用")
     }
     
     private func syncToClaudeConfig() {

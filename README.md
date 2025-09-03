@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="License">
 </p>
 
-A lightweight macOS status bar application for managing and quickly switching between multiple Claude Code API provider configurations. Seamlessly integrates with Claude Code by automatically syncing to `~/.claude/settings.json`.
+A lightweight macOS status bar application for managing and quickly switching between multiple Claude Code API provider configurations. Seamlessly integrates with Claude Code by automatically syncing to `~/.claude/settings.json`. Uses modern JSON file storage at `~/.config/ccs/claude-switch.json` for reliable configuration management.
 
 ## ✨ Features
 
@@ -15,6 +15,8 @@ A lightweight macOS status bar application for managing and quickly switching be
 - 🎨 **Custom Provider Icons** - Set unique icons for each API provider for easy visual identification
 - 📊 **Token Usage Statistics** - Track and visualize API token usage for the last 3 days with detailed breakdowns
 - ⚙️ **Auto Configuration Sync** - Automatically syncs with Claude Code's settings.json
+- 📁 **Modern Config Storage** - Uses `~/.config/ccs/claude-switch.json` for reliable configuration management
+- 🔄 **Automatic Migration** - Seamlessly migrates from legacy UserDefaults storage
 - 🌐 **Proxy Support** - Configure HTTP/HTTPS proxy settings per provider
 - 🔔 **Switch Notifications** - Get notified when switching between providers
 - 🎯 **Native macOS Experience** - Built with SwiftUI for a clean, modern interface
@@ -111,7 +113,8 @@ MacOS-Claude-Code-Switcher/
 - **SwiftUI** - Modern declarative UI framework
 - **AppKit** - Status bar integration
 - **Combine** - Reactive programming for state management
-- **UserDefaults** - Local configuration storage
+- **JSON File Storage** - Modern configuration management at `~/.config/ccs/claude-switch.json`
+- **Automatic Migration** - Seamless transition from UserDefaults to JSON
 - **JSONEncoder/Decoder** - Claude settings synchronization
 
 ### Building for Release
@@ -148,6 +151,36 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 - **Storage**: ~10 MB
 - **Claude Code**: Compatible with all versions that use `~/.claude/settings.json`
 
+## 📁 Configuration File Management
+
+### Config File Locations
+- **App Configuration**: `~/.config/ccs/claude-switch.json`
+- **Claude Configuration**: `~/.claude/settings.json`
+- **Directory**: `~/.config/ccs/` (created automatically)
+
+### Configuration Structure
+The app stores all your API providers, settings, and preferences in a JSON file:
+```json
+{
+  "providers": [...],
+  "currentProvider": {...},
+  "autoUpdate": true,
+  "proxyHost": "",
+  "proxyPort": ""
+}
+```
+
+### Backup and Restore
+- **Automatic Backup**: The app automatically creates atomic backups during updates
+- **Manual Backup**: Copy `~/.config/ccs/claude-switch.json` to backup your configuration
+- **Restore**: Replace the config file with your backup and restart the app
+- **Migration**: Automatically migrates from older UserDefaults-based storage
+
+### Security Features
+- **File Permissions**: Config files are set to 600 (user read/write only)
+- **Atomic Writes**: Prevents corruption during configuration updates
+- **Fallback Storage**: UserDefaults as backup if file operations fail
+
 ## 🔧 Troubleshooting
 
 ### App doesn't appear in status bar
@@ -157,8 +190,21 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ### Configuration not syncing with Claude Code
 - Verify `~/.claude/settings.json` exists
-- Check file permissions
+- Check `~/.config/ccs/claude-switch.json` exists and contains your providers
+- Check file permissions (should be 600 for config files)
 - Restart both Claude Code Switcher and Claude Code
+
+### Configuration file not created
+- The app only creates config files when you add providers or change settings
+- Add at least one API provider to trigger config file creation
+- Check that `~/.config/ccs/` directory exists
+- Ensure you have write permissions to `~/.config/`
+
+### Migration issues from UserDefaults
+- First run automatically migrates existing UserDefaults configurations
+- If migration fails, the app uses UserDefaults as fallback
+- Check console logs for migration error messages
+- Manual backup: Copy your providers before major updates
 
 ### Custom icons not displaying
 - Ensure image files are in supported formats (PNG, JPG, HEIC)
