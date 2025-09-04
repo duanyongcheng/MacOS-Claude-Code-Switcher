@@ -9,6 +9,33 @@ struct AppConfig: Codable {
     let autoUpdate: Bool
     let proxyHost: String
     let proxyPort: String
+    let autoStartup: Bool
+    
+    enum CodingKeys: String, CodingKey {
+        case providers, currentProvider, autoUpdate, proxyHost, proxyPort, autoStartup
+    }
+    
+    // 自定义解码，处理旧配置文件中没有 autoStartup 的情况
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        self.providers = try container.decode([APIProvider].self, forKey: .providers)
+        self.currentProvider = try container.decodeIfPresent(APIProvider.self, forKey: .currentProvider)
+        self.autoUpdate = try container.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? true
+        self.proxyHost = try container.decodeIfPresent(String.self, forKey: .proxyHost) ?? ""
+        self.proxyPort = try container.decodeIfPresent(String.self, forKey: .proxyPort) ?? ""
+        self.autoStartup = try container.decodeIfPresent(Bool.self, forKey: .autoStartup) ?? false
+    }
+    
+    // 自定义编码
+    init(providers: [APIProvider], currentProvider: APIProvider?, autoUpdate: Bool, proxyHost: String, proxyPort: String, autoStartup: Bool) {
+        self.providers = providers
+        self.currentProvider = currentProvider
+        self.autoUpdate = autoUpdate
+        self.proxyHost = proxyHost
+        self.proxyPort = proxyPort
+        self.autoStartup = autoStartup
+    }
 }
 
 class ConfigManager: ObservableObject {
@@ -39,7 +66,9 @@ class ConfigManager: ObservableObject {
     }
     
     func addProvider(_ provider: APIProvider) {
+        print("添加新提供商: \(provider.name)")
         providers.append(provider)
+        print("当前提供商列表: \(providers.map { $0.name })")
         saveConfiguration()
         syncToClaudeConfig()
         postConfigChangeNotification()
@@ -136,6 +165,11 @@ class ConfigManager: ObservableObject {
         // 写入临时文件
         try data.write(to: tempFile)
         
+        // 如果目标文件存在，先删除
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
+        
         // 原子性替换
         try FileManager.default.moveItem(at: tempFile, to: url)
     }
@@ -151,7 +185,9 @@ class ConfigManager: ObservableObject {
     
     private func saveConfigToFile(_ config: AppConfig) throws {
         try ensureConfigDirectoryExists()
-        let data = try JSONEncoder().encode(config)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(config)
         try atomicWrite(to: appConfigPath, data: data)
         
         // 设置文件权限为仅用户可读写
@@ -172,6 +208,7 @@ class ConfigManager: ObservableObject {
         let autoUpdate = userDefaults.bool(forKey: "autoUpdate")
         let proxyHost = userDefaults.string(forKey: "proxyHost") ?? ""
         let proxyPort = userDefaults.string(forKey: "proxyPort") ?? ""
+        let autoStartup = userDefaults.bool(forKey: "autoStartup")
         
         if let data = userDefaults.data(forKey: "providers"),
            let decodedProviders = try? JSONDecoder().decode([APIProvider].self, from: data) {
@@ -189,7 +226,8 @@ class ConfigManager: ObservableObject {
             currentProvider: currentProvider,
             autoUpdate: autoUpdate,
             proxyHost: proxyHost,
-            proxyPort: proxyPort
+            proxyPort: proxyPort,
+            autoStartup: autoStartup
         )
         
         // 保存到文件
@@ -201,6 +239,7 @@ class ConfigManager: ObservableObject {
         userDefaults.removeObject(forKey: "autoUpdate")
         userDefaults.removeObject(forKey: "proxyHost")
         userDefaults.removeObject(forKey: "proxyPort")
+        userDefaults.removeObject(forKey: "autoStartup")
         
         print("配置迁移完成")
     }
@@ -213,6 +252,7 @@ class ConfigManager: ObservableObject {
             autoUpdate = config.autoUpdate
             proxyHost = config.proxyHost
             proxyPort = config.proxyPort
+            autoStartup = config.autoStartup
             print("从配置文件加载配置成功")
             return
         }
@@ -227,6 +267,7 @@ class ConfigManager: ObservableObject {
                 autoUpdate = config.autoUpdate
                 proxyHost = config.proxyHost
                 proxyPort = config.proxyPort
+                autoStartup = config.autoStartup
                 print("从 UserDefaults 迁移配置成功")
             }
         } catch {
@@ -237,24 +278,35 @@ class ConfigManager: ObservableObject {
             autoUpdate = true
             proxyHost = ""
             proxyPort = ""
+            autoStartup = false
         }
-        autoStartup = userDefaults.bool(forKey: "autoStartup")
     }
     
     private func saveConfiguration() {
+        print("开始保存配置...")
+        print("提供商数量: \(providers.count)")
+        print("提供商列表: \(providers.map { "\($0.name) (ID: \($0.id))" })")
+        
         // 创建配置对象
         let config = AppConfig(
             providers: providers,
             currentProvider: currentProvider,
             autoUpdate: autoUpdate,
             proxyHost: proxyHost,
-            proxyPort: proxyPort
+            proxyPort: proxyPort,
+            autoStartup: autoStartup
         )
         
         // 保存到文件
         do {
             try saveConfigToFile(config)
-            print("配置保存到文件成功")
+            print("配置保存到文件成功: \(appConfigPath.path)")
+            
+            // 验证保存的内容
+            if let savedData = try? Data(contentsOf: appConfigPath),
+               let savedConfig = try? JSONDecoder().decode(AppConfig.self, from: savedData) {
+                print("验证: 已保存 \(savedConfig.providers.count) 个提供商")
+            }
         } catch {
             print("保存配置到文件失败: \(error)")
             // 如果文件保存失败，尝试保存到 UserDefaults 作为备用
@@ -278,7 +330,6 @@ class ConfigManager: ObservableObject {
         userDefaults.set(autoUpdate, forKey: "autoUpdate")
         userDefaults.set(proxyHost, forKey: "proxyHost")
         userDefaults.set(proxyPort, forKey: "proxyPort")
-        userDefaults.set(autoStartup, forKey: "autoStartup")
         
         print("配置已保存到 UserDefaults 备用")
     }

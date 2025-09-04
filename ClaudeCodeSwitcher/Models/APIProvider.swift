@@ -1,7 +1,7 @@
 import Foundation
 
 struct APIProvider: Codable, Identifiable, Equatable {
-    let id = UUID()
+    let id: UUID
     var name: String
     var url: String
     var key: String
@@ -9,15 +9,29 @@ struct APIProvider: Codable, Identifiable, Equatable {
     var smallModel: String?
     
     enum CodingKeys: String, CodingKey {
-        case name, url, key, largeModel, smallModel
+        case id, name, url, key, largeModel, smallModel
     }
     
-    init(name: String, url: String, key: String, largeModel: String? = nil, smallModel: String? = nil) {
+    init(id: UUID = UUID(), name: String, url: String, key: String, largeModel: String? = nil, smallModel: String? = nil) {
+        self.id = id
         self.name = name
         self.url = url
         self.key = key
         self.largeModel = largeModel
         self.smallModel = smallModel
+    }
+    
+    // 自定义解码，处理旧配置文件中没有 id 的情况
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        // 如果没有 id，生成一个新的
+        self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        self.name = try container.decode(String.self, forKey: .name)
+        self.url = try container.decode(String.self, forKey: .url)
+        self.key = try container.decode(String.self, forKey: .key)
+        self.largeModel = try container.decodeIfPresent(String.self, forKey: .largeModel)
+        self.smallModel = try container.decodeIfPresent(String.self, forKey: .smallModel)
     }
     
     // 验证 API 密钥是否配置
