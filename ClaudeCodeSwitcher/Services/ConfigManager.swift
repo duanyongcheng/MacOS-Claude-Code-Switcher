@@ -342,20 +342,24 @@ class ConfigManager: ObservableObject {
                 try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
             }
             
-            // 读取现有配置作为原始 JSON（保留所有字段）
-            var existingJson: [String: Any] = [:]
+            // 使用 ClaudeConfig 模型来管理配置
+            var claudeConfig: ClaudeConfig
+            
+            // 读取现有配置
             if FileManager.default.fileExists(atPath: claudeConfigPath.path) {
                 let data = try Data(contentsOf: claudeConfigPath)
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    existingJson = json
-                }
+                claudeConfig = try JSONDecoder().decode(ClaudeConfig.self, from: data)
+            } else {
+                claudeConfig = ClaudeConfig()
             }
             
-            // 更新仅由 Switcher 管理的字段
-            updateSwitcherManagedFields(&existingJson)
+            // 更新 Switcher 管理的字段
+            updateSwitcherManagedFields(&claudeConfig)
             
             // 写入配置文件
-            let data = try JSONSerialization.data(withJSONObject: existingJson, options: [.prettyPrinted, .sortedKeys])
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(claudeConfig)
             try data.write(to: claudeConfigPath)
             
             print("已同步配置到 Claude 配置文件: \(claudeConfigPath.path)")
@@ -365,47 +369,46 @@ class ConfigManager: ObservableObject {
         }
     }
     
-    private func updateSwitcherManagedFields(_ json: inout [String: Any]) {
+    private func updateSwitcherManagedFields(_ config: inout ClaudeConfig) {
         // 确保 env 对象存在
-        var env = (json["env"] as? [String: Any]) ?? [:]
+        if config.env == nil {
+            config.env = ClaudeConfig.Environment()
+        }
         
         // 只更新 Switcher 管理的字段
         if let provider = currentProvider {
-            env["ANTHROPIC_API_KEY"] = provider.key
-            env["ANTHROPIC_BASE_URL"] = provider.url
+            config.env?.ANTHROPIC_API_KEY = provider.key
+            config.env?.ANTHROPIC_BASE_URL = provider.url
             
             // 可选字段：只在有值时设置，否则移除
             if let largeModel = provider.largeModel, !largeModel.isEmpty {
-                env["ANTHROPIC_MODEL"] = largeModel
+                config.env?.ANTHROPIC_MODEL = largeModel
             } else {
-                env.removeValue(forKey: "ANTHROPIC_MODEL")
+                config.env?.ANTHROPIC_MODEL = nil
             }
             
             if let smallModel = provider.smallModel, !smallModel.isEmpty {
-                env["ANTHROPIC_SMALL_FAST_MODEL"] = smallModel
+                config.env?.ANTHROPIC_SMALL_FAST_MODEL = smallModel
             } else {
-                env.removeValue(forKey: "ANTHROPIC_SMALL_FAST_MODEL")
+                config.env?.ANTHROPIC_SMALL_FAST_MODEL = nil
             }
         } else {
             // 没有当前提供商时，清空这些字段
-            env["ANTHROPIC_API_KEY"] = ""
-            env["ANTHROPIC_BASE_URL"] = ""
-            env.removeValue(forKey: "ANTHROPIC_MODEL")
-            env.removeValue(forKey: "ANTHROPIC_SMALL_FAST_MODEL")
+            config.env?.ANTHROPIC_API_KEY = ""
+            config.env?.ANTHROPIC_BASE_URL = ""
+            config.env?.ANTHROPIC_MODEL = nil
+            config.env?.ANTHROPIC_SMALL_FAST_MODEL = nil
         }
         
         // 处理代理设置
         let proxyUrl = buildProxyUrl()
         if !proxyUrl.isEmpty {
-            env["HTTPS_PROXY"] = proxyUrl
-            env["HTTP_PROXY"] = proxyUrl
+            config.env?.HTTPS_PROXY = proxyUrl
+            config.env?.HTTP_PROXY = proxyUrl
         } else {
-            env.removeValue(forKey: "HTTPS_PROXY")
-            env.removeValue(forKey: "HTTP_PROXY")
+            config.env?.HTTPS_PROXY = nil
+            config.env?.HTTP_PROXY = nil
         }
-        
-        // 更新 env 对象
-        json["env"] = env
     }
     
     private func buildProxyUrl() -> String {
