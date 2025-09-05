@@ -61,13 +61,23 @@ class ConfigManager: ObservableObject {
     
     // MARK: - Public Methods
     
+    func reloadConfiguration() {
+        print("=== reloadConfiguration() 被调用 ===")
+        DispatchQueue.main.async {
+            print("=== 开始在主线程重新加载配置 ===")
+            self.loadConfiguration()
+        }
+    }
+    
     func getProviders() -> [APIProvider] {
         return providers
     }
     
     func addProvider(_ provider: APIProvider) {
+        objectWillChange.send()
         print("添加新提供商: \(provider.name)")
-        providers.append(provider)
+        // 重新赋值以确保 @Published 触发变更
+        providers = providers + [provider]
         print("当前提供商列表: \(providers.map { $0.name })")
         saveConfiguration()
         syncToClaudeConfig()
@@ -75,8 +85,10 @@ class ConfigManager: ObservableObject {
     }
     
     func updateProvider(_ provider: APIProvider) {
-        if let index = providers.firstIndex(where: { $0.id == provider.id }) {
-            providers[index] = provider
+        objectWillChange.send()
+        if providers.contains(where: { $0.id == provider.id }) {
+            // 重新赋值以确保 @Published 触发变更
+            providers = providers.map { $0.id == provider.id ? provider : $0 }
             
             // 如果更新的是当前提供商，也要更新当前提供商
             if currentProvider?.id == provider.id {
@@ -90,7 +102,9 @@ class ConfigManager: ObservableObject {
     }
     
     func removeProvider(_ provider: APIProvider) {
-        providers.removeAll { $0.id == provider.id }
+        objectWillChange.send()
+        // 重新赋值以确保 @Published 触发变更
+        providers = providers.filter { $0.id != provider.id }
         
         // 如果删除的是当前提供商，清空当前提供商
         if currentProvider?.id == provider.id {
@@ -103,6 +117,7 @@ class ConfigManager: ObservableObject {
     }
     
     func setCurrentProvider(_ provider: APIProvider) {
+        objectWillChange.send()
         currentProvider = provider
         saveConfiguration()
         syncToClaudeConfig()
@@ -110,6 +125,7 @@ class ConfigManager: ObservableObject {
     }
     
     func copyProvider(_ provider: APIProvider) {
+        objectWillChange.send()
         let copiedProvider = APIProvider(
             name: provider.name + "-复制",
             url: provider.url,
@@ -117,7 +133,8 @@ class ConfigManager: ObservableObject {
             largeModel: provider.largeModel,
             smallModel: provider.smallModel
         )
-        providers.append(copiedProvider)
+        // 重新赋值以确保 @Published 触发变更
+        providers = providers + [copiedProvider]
         saveConfiguration()
         syncToClaudeConfig()
         postConfigChangeNotification()
@@ -247,13 +264,20 @@ class ConfigManager: ObservableObject {
     private func loadConfiguration() {
         // 首先尝试从文件加载配置
         if let config = try? loadConfigFromFile() {
-            providers = config.providers
-            currentProvider = config.currentProvider
-            autoUpdate = config.autoUpdate
-            proxyHost = config.proxyHost
-            proxyPort = config.proxyPort
-            autoStartup = config.autoStartup
+            print("=== 从文件加载到配置，提供商数量: \(config.providers.count) ===")
+            print("=== 更新前 providers 数量: \(self.providers.count) ===")
+            self.providers = config.providers
+            self.currentProvider = config.currentProvider
+            self.autoUpdate = config.autoUpdate
+            self.proxyHost = config.proxyHost
+            self.proxyPort = config.proxyPort
+            self.autoStartup = config.autoStartup
+            print("=== 更新后 providers 数量: \(self.providers.count) ===")
             print("从配置文件加载配置成功")
+            // 初始加载后发送通知
+            DispatchQueue.main.async {
+                self.postConfigChangeNotification()
+            }
             return
         }
         
@@ -262,23 +286,27 @@ class ConfigManager: ObservableObject {
             try migrateFromUserDefaults()
             // 迁移后重新加载
             if let config = try? loadConfigFromFile() {
-                providers = config.providers
-                currentProvider = config.currentProvider
-                autoUpdate = config.autoUpdate
-                proxyHost = config.proxyHost
-                proxyPort = config.proxyPort
-                autoStartup = config.autoStartup
+                self.providers = config.providers
+                self.currentProvider = config.currentProvider
+                self.autoUpdate = config.autoUpdate
+                self.proxyHost = config.proxyHost
+                self.proxyPort = config.proxyPort
+                self.autoStartup = config.autoStartup
                 print("从 UserDefaults 迁移配置成功")
+                // 迁移后发送通知
+                DispatchQueue.main.async {
+                    self.postConfigChangeNotification()
+                }
             }
         } catch {
             print("迁移配置失败，使用默认配置: \(error)")
             // 使用默认配置
-            providers = []
-            currentProvider = nil
-            autoUpdate = true
-            proxyHost = ""
-            proxyPort = ""
-            autoStartup = false
+            self.providers = []
+            self.currentProvider = nil
+            self.autoUpdate = true
+            self.proxyHost = ""
+            self.proxyPort = ""
+            self.autoStartup = false
         }
     }
     

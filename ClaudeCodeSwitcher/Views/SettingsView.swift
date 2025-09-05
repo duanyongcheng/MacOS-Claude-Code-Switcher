@@ -3,7 +3,7 @@ import AppKit
 import Foundation
 
 struct SettingsView: View {
-    @StateObject private var configManager = ConfigManager.shared
+    @ObservedObject private var configManager = ConfigManager.shared
     @StateObject private var tokenStatsManager = TokenStatsManager.shared
     @State private var showingAddProvider = false
     @State private var editingProvider: APIProvider?
@@ -54,7 +54,6 @@ struct SettingsView: View {
                     proxyHost: $configManager.proxyHost,
                     proxyPort: $configManager.proxyPort,
                     autoStartup: $configManager.autoStartup,
-                    launchAgentStatus: configManager.checkLaunchAgentStatus(),
                     onSave: {
                         configManager.updateGlobalSettings(
                             autoUpdate: configManager.autoUpdate,
@@ -80,6 +79,9 @@ struct SettingsView: View {
         .background(Color(.windowBackgroundColor))
         .frame(width: 500, height: 700)
         .onAppear {
+            print("=== SettingsView onAppear 被调用 ===")
+            print("=== 当前 configManager.providers 数量: \(configManager.providers.count) ===")
+            configManager.reloadConfiguration()
             checkClaudeProcess()
         }
         .sheet(isPresented: $showingAddProvider) {
@@ -700,9 +702,9 @@ struct ProxySettingsCard: View {
     @Binding var proxyHost: String
     @Binding var proxyPort: String
     @Binding var autoStartup: Bool
-    let launchAgentStatus: Bool
     let onSave: () -> Void
-    @StateObject private var configManager = ConfigManager.shared
+    @ObservedObject private var configManager = ConfigManager.shared
+    @State private var launchAgentStatus: Bool = false
     
     var body: some View {
         CardView {
@@ -792,13 +794,22 @@ struct ProxySettingsCard: View {
                 
                 Button("保存设置") {
                     onSave()
-                    // 强制刷新界面以显示最新的 Launch Agent 状态
+                    // 保存后稍等再检测一次 Launch Agent 状态并更新界面
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        // 触发界面重新渲染
-                        let _ = configManager.checkLaunchAgentStatus()
+                        launchAgentStatus = configManager.checkLaunchAgentStatus()
                     }
                 }
                 .buttonStyle(PrimaryButtonStyle())
+            }
+        }
+        .onAppear {
+            // 初始展示 Launch Agent 安装状态
+            launchAgentStatus = configManager.checkLaunchAgentStatus()
+        }
+        .onChange(of: autoStartup) { _ in
+            // 开关变化时，稍后刷新一次状态显示
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                launchAgentStatus = configManager.checkLaunchAgentStatus()
             }
         }
     }

@@ -19,6 +19,12 @@ class StatusBarController: NSObject {
         observeConfigChanges()
         print("observeConfigChanges 完成")
         requestNotificationPermission()
+        
+        // 延迟重建菜单，确保配置已加载
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.rebuildMenu()
+        }
+        
         print("StatusBarController init 完成")
     }
     
