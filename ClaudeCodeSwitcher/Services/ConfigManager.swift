@@ -203,7 +203,7 @@ class ConfigManager: ObservableObject {
     private func saveConfigToFile(_ config: AppConfig) throws {
         try ensureConfigDirectoryExists()
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(config)
         try atomicWrite(to: appConfigPath, data: data)
         
@@ -386,7 +386,7 @@ class ConfigManager: ObservableObject {
             
             // 写入配置文件
             let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
             let data = try encoder.encode(claudeConfig)
             try data.write(to: claudeConfigPath)
             
