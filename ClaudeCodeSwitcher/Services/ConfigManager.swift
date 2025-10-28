@@ -370,25 +370,14 @@ class ConfigManager: ObservableObject {
                 try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
             }
             
-            // 使用 ClaudeConfig 模型来管理配置
-            var claudeConfig: ClaudeConfig
-            
-            // 读取现有配置
-            if FileManager.default.fileExists(atPath: claudeConfigPath.path) {
-                let data = try Data(contentsOf: claudeConfigPath)
-                claudeConfig = try JSONDecoder().decode(ClaudeConfig.self, from: data)
-            } else {
-                claudeConfig = ClaudeConfig()
-            }
+            // 读取现有配置并保留未受管理的字段
+            var claudeConfig = loadClaudeConfigDictionary()
             
             // 更新 Switcher 管理的字段
             updateSwitcherManagedFields(&claudeConfig)
             
             // 写入配置文件
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-            let data = try encoder.encode(claudeConfig)
-            try data.write(to: claudeConfigPath)
+            try writeClaudeConfigDictionary(claudeConfig)
             
             print("已同步配置到 Claude 配置文件: \(claudeConfigPath.path)")
             
@@ -397,45 +386,72 @@ class ConfigManager: ObservableObject {
         }
     }
     
-    private func updateSwitcherManagedFields(_ config: inout ClaudeConfig) {
-        // 确保 env 对象存在
-        if config.env == nil {
-            config.env = ClaudeConfig.Environment()
+    private func loadClaudeConfigDictionary() -> [String: Any] {
+        guard FileManager.default.fileExists(atPath: claudeConfigPath.path) else {
+            return [:]
         }
         
-        // 只更新 Switcher 管理的字段
-        if let provider = currentProvider {
-            config.env?.ANTHROPIC_API_KEY = provider.key
-            config.env?.ANTHROPIC_BASE_URL = provider.url
-            
-            // 可选字段：只在有值时设置，否则移除
-            if let largeModel = provider.largeModel, !largeModel.isEmpty {
-                config.env?.ANTHROPIC_MODEL = largeModel
+        do {
+            let data = try Data(contentsOf: claudeConfigPath)
+            let jsonObject = try JSONSerialization.jsonObject(with: data, options: [])
+            if let dictionary = jsonObject as? [String: Any] {
+                return dictionary
             } else {
-                config.env?.ANTHROPIC_MODEL = nil
+                print("现有 Claude 配置不是对象，将使用空配置")
+            }
+        } catch {
+            print("读取 Claude 配置失败: \(error)，将使用空配置")
+        }
+        
+        return [:]
+    }
+    
+    private func writeClaudeConfigDictionary(_ config: [String: Any]) throws {
+        let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: claudeConfigPath, options: .atomic)
+        
+        // 设置文件权限为仅用户可读写
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: claudeConfigPath.path)
+    }
+    
+    private func updateSwitcherManagedFields(_ config: inout [String: Any]) {
+        var env = config["env"] as? [String: Any] ?? [:]
+        
+        if let provider = currentProvider {
+            env["ANTHROPIC_API_KEY"] = provider.key
+            env["ANTHROPIC_BASE_URL"] = provider.url
+            
+            if let largeModel = provider.largeModel, !largeModel.isEmpty {
+                env["ANTHROPIC_MODEL"] = largeModel
+            } else {
+                env.removeValue(forKey: "ANTHROPIC_MODEL")
             }
             
             if let smallModel = provider.smallModel, !smallModel.isEmpty {
-                config.env?.ANTHROPIC_SMALL_FAST_MODEL = smallModel
+                env["ANTHROPIC_SMALL_FAST_MODEL"] = smallModel
             } else {
-                config.env?.ANTHROPIC_SMALL_FAST_MODEL = nil
+                env.removeValue(forKey: "ANTHROPIC_SMALL_FAST_MODEL")
             }
         } else {
-            // 没有当前提供商时，清空这些字段
-            config.env?.ANTHROPIC_API_KEY = ""
-            config.env?.ANTHROPIC_BASE_URL = ""
-            config.env?.ANTHROPIC_MODEL = nil
-            config.env?.ANTHROPIC_SMALL_FAST_MODEL = nil
+            env["ANTHROPIC_API_KEY"] = ""
+            env["ANTHROPIC_BASE_URL"] = ""
+            env.removeValue(forKey: "ANTHROPIC_MODEL")
+            env.removeValue(forKey: "ANTHROPIC_SMALL_FAST_MODEL")
         }
         
-        // 处理代理设置
         let proxyUrl = buildProxyUrl()
         if !proxyUrl.isEmpty {
-            config.env?.HTTPS_PROXY = proxyUrl
-            config.env?.HTTP_PROXY = proxyUrl
+            env["HTTPS_PROXY"] = proxyUrl
+            env["HTTP_PROXY"] = proxyUrl
         } else {
-            config.env?.HTTPS_PROXY = nil
-            config.env?.HTTP_PROXY = nil
+            env.removeValue(forKey: "HTTPS_PROXY")
+            env.removeValue(forKey: "HTTP_PROXY")
+        }
+        
+        if !env.isEmpty {
+            config["env"] = env
+        } else {
+            config.removeValue(forKey: "env")
         }
     }
     
