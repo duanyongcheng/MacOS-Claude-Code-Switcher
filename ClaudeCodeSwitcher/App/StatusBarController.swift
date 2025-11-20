@@ -6,6 +6,7 @@ class StatusBarController: NSObject {
     private var menu: NSMenu!
     private var configManager: ConfigManager!
     private var settingsWindowController: SettingsWindowController?
+    private var balanceStatus: BalanceMenuStatus = .idle
     
     override init() {
         super.init()
@@ -118,8 +119,27 @@ class StatusBarController: NSObject {
             ]
             currentItem.attributedTitle = NSAttributedString(string: "  ✓ \(current.name)", attributes: currentAttributes)
             menu.addItem(currentItem)
-            menu.addItem(NSMenuItem.separator())
         }
+        
+        // 添加余额信息
+        let balanceItem = NSMenuItem(title: balanceStatus.menuTitle(for: currentProvider), action: nil, keyEquivalent: "")
+        balanceItem.isEnabled = false
+        balanceItem.attributedTitle = NSAttributedString(string: balanceStatus.menuTitle(for: currentProvider), attributes: balanceStatus.menuAttributes)
+        balanceItem.toolTip = balanceStatus.tooltip(for: currentProvider)
+        menu.addItem(balanceItem)
+        
+        if let provider = currentProvider {
+            let urlTitle = "地址: \(provider.url)"
+            let urlItem = NSMenuItem(title: urlTitle, action: nil, keyEquivalent: "")
+            urlItem.isEnabled = false
+            let urlAttributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ]
+            urlItem.attributedTitle = NSAttributedString(string: urlTitle, attributes: urlAttributes)
+            menu.addItem(urlItem)
+        }
+        menu.addItem(NSMenuItem.separator())
         
         // 添加 API 提供商列表
         let providers = configManager.getProviders()
@@ -151,6 +171,10 @@ class StatusBarController: NSObject {
                 if provider.id == currentProvider?.id {
                     title = "  ● " + title
                     attributes[.foregroundColor] = NSColor.systemBlue
+                    
+                    if let balanceInline = balanceStatus.inlineText(for: provider) {
+                        title += " · \(balanceInline)"
+                    }
                 } else if provider.isValid {
                     title = "  ○ " + title
                     attributes[.foregroundColor] = NSColor.labelColor
@@ -215,11 +239,17 @@ class StatusBarController: NSObject {
         menu.addItem(quitItem)
     }
     
+    func updateBalanceStatus(_ status: BalanceMenuStatus) {
+        balanceStatus = status
+        rebuildMenu()
+    }
+    
     @objc private func selectProvider(_ sender: NSMenuItem) {
         guard let provider = sender.representedObject as? APIProvider else { return }
         
         if provider.isValid {
             configManager.setCurrentProvider(provider)
+            balanceStatus = .idle
             rebuildMenu()
             showNotification(title: "已切换到: \(provider.name)")
         } else {
@@ -280,6 +310,7 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
     }
     
     @objc private func configDidChange() {
+        balanceStatus = .idle
         rebuildMenu()
     }
     
@@ -310,6 +341,76 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
             if let error = error {
                 print("发送通知失败: \(error)")
             }
+        }
+    }
+}
+
+enum BalanceMenuStatus {
+    case idle
+    case loading
+    case success(amount: Double, currency: String)
+    case failure(message: String)
+    
+    func menuTitle(for provider: APIProvider?) -> String {
+        switch self {
+        case .idle:
+            return provider == nil ? "余额：未选择配置" : "余额：未查询"
+        case .loading:
+            return "余额：查询中..."
+        case .success(let amount, let currency):
+            let prefix = amount < 5.0 ? "⚠️ " : ""
+            let amountText = "\(currency)\(String(format: "%.2f", amount))"
+            return "\(prefix)余额：\(amountText)"
+        case .failure:
+            return "⚠️ 余额：获取失败"
+        }
+    }
+    
+    func inlineText(for provider: APIProvider?) -> String? {
+        guard provider != nil else { return nil }
+        
+        switch self {
+        case .idle:
+            return "余额未查"
+        case .loading:
+            return "余额查询中"
+        case .success(let amount, let currency):
+            let amountText = "\(currency)\(String(format: "%.2f", amount))"
+            return "余额 \(amountText)"
+        case .failure:
+            return "余额失败"
+        }
+    }
+    
+    var menuAttributes: [NSAttributedString.Key: Any] {
+        var color: NSColor = .secondaryLabelColor
+        switch self {
+        case .success(let amount, _):
+            color = amount < 5.0 ? .systemOrange : .systemGreen
+        case .failure:
+            color = .systemOrange
+        case .loading:
+            color = .secondaryLabelColor
+        case .idle:
+            color = .secondaryLabelColor
+        }
+        
+        return [
+            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: color
+        ]
+    }
+    
+    func tooltip(for provider: APIProvider?) -> String? {
+        switch self {
+        case .idle:
+            return provider == nil ? "选择配置后可查询余额" : "尚未查询余额"
+        case .loading:
+            return "正在查询余额..."
+        case .success(let amount, _):
+            return amount < 5.0 ? "余额低于 $5，建议尽快充值" : "余额状态正常"
+        case .failure(let message):
+            return message
         }
     }
 }

@@ -8,6 +8,9 @@ struct SettingsView: View {
     @State private var showingAddProvider = false
     @State private var editingProvider: APIProvider?
     @State private var claudeProcessStatus: String = "未检测到"
+    @State private var balanceStatus: BalanceStatus = .idle
+    @State private var selectedBalanceProvider: APIProvider?
+    private let balanceService = BalanceService()
     
     var body: some View {
         ScrollView {
@@ -15,11 +18,19 @@ struct SettingsView: View {
                 // 当前配置卡片
                 CurrentConfigCard(
                     currentProvider: configManager.currentProvider,
+                    selectedBalanceProvider: selectedBalanceProvider,
+                    balanceStatus: balanceStatus,
                     processStatus: claudeProcessStatus
                 )
                 
                 // 使用量统计卡片
                 UsageStatsCard(
+                    balanceStatus: balanceStatus,
+                    providers: configManager.providers,
+                    selectedProvider: $selectedBalanceProvider,
+                    onBalanceRefresh: { provider in
+                        refreshBalance(for: provider)
+                    },
                     recentDaysStats: tokenStatsManager.recentDaysStats,
                     isLoading: tokenStatsManager.isLoading,
                     lastUpdateTime: tokenStatsManager.lastUpdateTime,
@@ -32,6 +43,8 @@ struct SettingsView: View {
                 AvailableConfigsCard(
                     providers: configManager.providers,
                     currentProvider: configManager.currentProvider,
+                    selectedBalanceProvider: selectedBalanceProvider,
+                    balanceStatus: balanceStatus,
                     onEdit: { provider in
                         editingProvider = provider
                     },
@@ -83,6 +96,8 @@ struct SettingsView: View {
             print("=== 当前 configManager.providers 数量: \(configManager.providers.count) ===")
             configManager.reloadConfiguration()
             checkClaudeProcess()
+            selectedBalanceProvider = configManager.currentProvider
+            refreshBalance(for: selectedBalanceProvider)
         }
         .sheet(isPresented: $showingAddProvider) {
             AddProviderView { provider in
@@ -92,6 +107,45 @@ struct SettingsView: View {
         .sheet(item: $editingProvider) { provider in
             EditProviderView(provider: provider) { updatedProvider in
                 configManager.updateProvider(updatedProvider)
+            }
+        }
+        .onChange(of: configManager.currentProvider?.id) { newValue in
+            if selectedBalanceProvider == nil || selectedBalanceProvider?.id == nil || selectedBalanceProvider?.id == newValue {
+                selectedBalanceProvider = configManager.currentProvider
+            }
+        }
+    }
+    
+    private func refreshBalance(for provider: APIProvider?) {
+        guard let provider else {
+            balanceStatus = .failure(message: "请选择配置")
+            return
+        }
+        
+        balanceStatus = .loading
+        
+        balanceService.fetchBalance(for: provider) { result in
+            switch result {
+            case .success(let balance):
+                let tokensInt = balance.availableTokens
+                let tokens = Double(tokensInt)
+                let dollars = tokens / 500_000.0
+                let now = Date()
+                print("余额查询成功，available tokens: \(tokensInt), totalGranted: \(balance.totalGranted ?? -1), totalUsed: \(balance.totalUsed ?? -1), 折合美元: \(dollars)")
+                DispatchQueue.main.async {
+                    balanceStatus = .success(
+                        amount: dollars,
+                        currency: "$",
+                        updatedAt: now,
+                        provider: provider,
+                        tokens: tokensInt
+                    )
+                }
+            case .failure(let error):
+                print("余额查询失败: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    balanceStatus = .failure(message: error.localizedDescription)
+                }
             }
         }
     }
@@ -122,8 +176,102 @@ struct SettingsView: View {
     }
 }
 
+// MARK: - 余额状态
+enum BalanceStatus: Equatable {
+    case idle
+    case loading
+    case success(amount: Double, currency: String, updatedAt: Date?, provider: APIProvider, tokens: Int?)
+    case failure(message: String)
+    
+    var isLoading: Bool {
+        if case .loading = self { return true }
+        return false
+    }
+    
+    var formattedAmount: String {
+        switch self {
+        case .success(let amount, let currency, _, _, _):
+            if currency == "tok" {
+                let formatter = NumberFormatter()
+                formatter.numberStyle = .decimal
+                formatter.maximumFractionDigits = 0
+                let tokenText = formatter.string(from: NSNumber(value: amount)) ?? "\(Int(amount))"
+                return "剩余 \(tokenText) token"
+            } else if currency == "$" {
+                return "$" + String(format: "%.2f", amount)
+            }
+            return "\(currency)\(String(format: "%.2f", amount))"
+        default:
+            return "--"
+        }
+    }
+    
+    var detailText: String {
+        switch self {
+        case .idle:
+            return "未查询余额"
+        case .loading:
+            return "查询中..."
+        case .success(_, let currency, let updatedAt, _, let tokens):
+            var parts: [String] = []
+            if currency == "$", let tokens = tokens {
+                let formatter = NumberFormatter()
+                formatter.numberStyle = .decimal
+                formatter.maximumFractionDigits = 0
+                let tokenText = formatter.string(from: NSNumber(value: tokens)) ?? "\(tokens)"
+                parts.append("剩余 \(tokenText) token")
+            }
+            if let updatedAt = updatedAt {
+                parts.append("更新于 \(DateFormatter.shortTimeFormatter.string(from: updatedAt))")
+            }
+            return parts.isEmpty ? "已更新" : parts.joined(separator: " · ")
+        case .failure(let message):
+            return "获取失败：\(message)"
+        }
+    }
+    
+    var highlightColor: Color {
+        switch self {
+        case .success(let amount, let currency, _, _, _):
+            if currency == "tok" {
+                return .blue
+            }
+            return amount < 5.0 ? .orange : .green
+        case .failure:
+            return .orange
+        default:
+            return .secondary
+        }
+    }
+    
+    var compactLabel: String {
+        switch self {
+        case .success:
+            return "余额 \(formattedAmount)"
+        case .loading:
+            return "余额查询中"
+        case .failure:
+            return "余额获取失败"
+        case .idle:
+            return "余额未查询"
+        }
+    }
+}
+
+extension DateFormatter {
+    static let shortTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+}
+
 // MARK: - 使用量统计卡片
 struct UsageStatsCard: View {
+    let balanceStatus: BalanceStatus
+    let providers: [APIProvider]
+    @Binding var selectedProvider: APIProvider?
+    let onBalanceRefresh: (APIProvider?) -> Void
     let recentDaysStats: RecentDaysStats?
     let isLoading: Bool
     let lastUpdateTime: Date?
@@ -132,6 +280,15 @@ struct UsageStatsCard: View {
     var body: some View {
         CardView {
             VStack(alignment: .leading, spacing: 16) {
+                BalanceSummaryRow(
+                    status: balanceStatus,
+                    providers: providers,
+                    selectedProvider: $selectedProvider,
+                    onRefresh: onBalanceRefresh
+                )
+                
+                Divider()
+                
                 HStack {
                     Image(systemName: "chart.bar.fill")
                         .foregroundColor(.blue)
@@ -346,6 +503,105 @@ struct UsageStatsCard: View {
     }
 }
 
+struct BalanceSummaryRow: View {
+    let status: BalanceStatus
+    let providers: [APIProvider]
+    @Binding var selectedProvider: APIProvider?
+    let onRefresh: (APIProvider?) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "wallet.pass.fill")
+                    .foregroundColor(.orange)
+                    .font(.title3)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("账户余额")
+                        .font(.subheadline)
+                        .foregroundColor(.primary)
+                    
+                    Text(status.detailText)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                HStack(spacing: 8) {
+                    if status.isLoading {
+                        ProgressView()
+                            .scaleEffect(0.9)
+                    } else {
+                        Text(status.formattedAmount)
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                            .foregroundColor(status.highlightColor)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule()
+                                    .fill(status.highlightColor.opacity(0.1))
+                            )
+                    }
+                    
+                    Button("查询余额") {
+                        onRefresh(selectedProvider)
+                    }
+                    .buttonStyle(CompactButtonStyle(color: .orange))
+                    .disabled(status.isLoading || selectedProvider == nil)
+                }
+            }
+            
+            HStack(spacing: 12) {
+                Menu {
+                    if providers.isEmpty {
+                        Text("暂无配置")
+                    } else {
+                        ForEach(providers) { provider in
+                            Button(provider.name) {
+                                selectedProvider = provider
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "rectangle.and.pencil.and.ellipsis")
+                        Text(selectedProvider?.name ?? "选择配置")
+                        Image(systemName: "chevron.down")
+                            .font(.caption2)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color(.separatorColor), lineWidth: 1)
+                    )
+                }
+                .menuStyle(BorderlessButtonMenuStyle())
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("配置地址")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(selectedProvider?.url ?? "请选择需要查询余额的配置")
+                        .font(.caption)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(.textBackgroundColor))
+        )
+    }
+}
+
 // MARK: - 统计卡片视图
 struct StatsCardView: View {
     let title: String
@@ -413,6 +669,8 @@ struct DetailRowView: View {
 // MARK: - 当前配置卡片
 struct CurrentConfigCard: View {
     let currentProvider: APIProvider?
+    let selectedBalanceProvider: APIProvider?
+    let balanceStatus: BalanceStatus
     let processStatus: String
     
     var body: some View {
@@ -454,7 +712,7 @@ struct CurrentConfigCard: View {
                         Spacer()
                         
                         // 连接状态指示器
-                        VStack(spacing: 4) {
+                        VStack(spacing: 6) {
                             Circle()
                                 .fill(provider.isValid ? Color.green : Color.red)
                                 .frame(width: 12, height: 12)
@@ -462,6 +720,20 @@ struct CurrentConfigCard: View {
                             Text(provider.isValid ? "已配置" : "配置错误")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
+                            
+                            Text(balanceStatus.compactLabel)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                            
+                            if let selectedBalanceProvider {
+                                Text("余额查询: \(selectedBalanceProvider.name)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+                            }
                         }
                     }
                 } else {
@@ -492,6 +764,8 @@ struct CurrentConfigCard: View {
 struct AvailableConfigsCard: View {
     let providers: [APIProvider]
     let currentProvider: APIProvider?
+    let selectedBalanceProvider: APIProvider?
+    let balanceStatus: BalanceStatus
     let onEdit: (APIProvider) -> Void
     let onDelete: (APIProvider) -> Void
     let onCopy: (APIProvider) -> Void
@@ -547,6 +821,8 @@ struct AvailableConfigsCard: View {
                             ProviderRowView(
                                 provider: provider,
                                 isCurrent: provider.id == currentProvider?.id,
+                                isBalanceTarget: provider.id == selectedBalanceProvider?.id,
+                                balanceStatus: balanceStatus,
                                 onEdit: onEdit,
                                 onDelete: onDelete,
                                 onCopy: onCopy,
@@ -564,6 +840,8 @@ struct AvailableConfigsCard: View {
 struct ProviderRowView: View {
     let provider: APIProvider
     let isCurrent: Bool
+    let isBalanceTarget: Bool
+    let balanceStatus: BalanceStatus
     let onEdit: (APIProvider) -> Void
     let onDelete: (APIProvider) -> Void
     let onCopy: (APIProvider) -> Void
@@ -617,6 +895,17 @@ struct ProviderRowView: View {
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 }
+                
+                HStack(spacing: 6) {
+                    Image(systemName: "wallet.pass")
+                        .foregroundColor(balanceDisplay.color)
+                        .font(.caption2)
+                    Text(balanceDisplay.text)
+                        .font(.caption2)
+                        .foregroundColor(balanceDisplay.color)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
             }
             
             Spacer()
@@ -665,6 +954,24 @@ struct ProviderRowView: View {
             return .blue
         } else {
             return .orange
+        }
+    }
+    
+    private var balanceDisplay: (text: String, color: Color) {
+        guard isBalanceTarget else {
+            return ("余额: --", .secondary)
+        }
+        
+        switch balanceStatus {
+        case .loading:
+            return ("余额: 查询中...", .secondary)
+        case .success(let amount, let currency, _, _, _):
+            let color: Color = amount < 5.0 ? .orange : .green
+            return ("余额: \(currency)\(String(format: "%.2f", amount))", color)
+        case .failure:
+            return ("余额: 获取失败", .orange)
+        case .idle:
+            return ("余额: 未查询", .secondary)
         }
     }
 }

@@ -16,6 +16,7 @@
 		B80A000C290A0A0A0000000C /* ConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80A000D290A0A0A0000000D /* ConfigManager.swift */; };
 		B80A000E290A0A0A0000000E /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80A000F290A0A0A0000000F /* SettingsView.swift */; };
 		B80A0012290A0A0A00000012 /* TokenStatsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80A0017290A0A0A00000017 /* TokenStatsManager.swift */; };
+		B80A0100290A0A0A00000100 /* BalanceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80A0101290A0A0A00000101 /* BalanceService.swift */; };
 		B80A0010290A0A0A00000010 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B80A0011290A0A0A00000011 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -44,6 +45,7 @@
 		B80A0013290A0A0A00000013 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B80A0016290A0A0A00000016 /* ClaudeCodeSwitcher.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeCodeSwitcher.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B80A0017290A0A0A00000017 /* TokenStatsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenStatsManager.swift; sourceTree = "<group>"; };
+		B80A0101290A0A0A00000101 /* BalanceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BalanceService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -110,6 +112,7 @@
 			children = (
 				B80A000D290A0A0A0000000D /* ConfigManager.swift */,
 				B80A0017290A0A0A00000017 /* TokenStatsManager.swift */,
+				B80A0101290A0A0A00000101 /* BalanceService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -210,6 +213,7 @@
 				B80A000C290A0A0A0000000C /* ConfigManager.swift in Sources */,
 				B80A000E290A0A0A0000000E /* SettingsView.swift in Sources */,
 				B80A0012290A0A0A00000012 /* TokenStatsManager.swift in Sources */,
+				B80A0100290A0A0A00000100 /* BalanceService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
