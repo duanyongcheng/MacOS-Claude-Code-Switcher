@@ -140,11 +140,32 @@ struct SettingsView: View {
                         provider: provider,
                         tokens: tokensInt
                     )
+                    
+                    NotificationCenter.default.post(
+                        name: .balanceDidUpdate,
+                        object: nil,
+                        userInfo: [
+                            "providerId": provider.id.uuidString,
+                            "providerName": provider.name,
+                            "tokens": tokensInt,
+                            "dollars": dollars
+                        ]
+                    )
                 }
             case .failure(let error):
                 print("余额查询失败: \(error.localizedDescription)")
                 DispatchQueue.main.async {
                     balanceStatus = .failure(message: error.localizedDescription)
+                    
+                    NotificationCenter.default.post(
+                        name: .balanceDidUpdate,
+                        object: nil,
+                        userInfo: [
+                            "providerId": provider.id.uuidString,
+                            "providerName": provider.name,
+                            "error": error.localizedDescription
+                        ]
+                    )
                 }
             }
         }

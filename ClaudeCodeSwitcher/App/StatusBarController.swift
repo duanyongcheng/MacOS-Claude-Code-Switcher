@@ -7,6 +7,7 @@ class StatusBarController: NSObject {
     private var configManager: ConfigManager!
     private var settingsWindowController: SettingsWindowController?
     private var balanceStatus: BalanceMenuStatus = .idle
+    private let balanceService = BalanceService()
     
     override init() {
         super.init()
@@ -20,6 +21,7 @@ class StatusBarController: NSObject {
         observeConfigChanges()
         print("observeConfigChanges 完成")
         requestNotificationPermission()
+        fetchCurrentBalance()
         
         // 延迟重建菜单，确保配置已加载
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -121,11 +123,20 @@ class StatusBarController: NSObject {
             menu.addItem(currentItem)
         }
         
-        // 添加余额信息
-        let balanceItem = NSMenuItem(title: balanceStatus.menuTitle(for: currentProvider), action: nil, keyEquivalent: "")
-        balanceItem.isEnabled = false
-        balanceItem.attributedTitle = NSAttributedString(string: balanceStatus.menuTitle(for: currentProvider), attributes: balanceStatus.menuAttributes)
-        balanceItem.toolTip = balanceStatus.tooltip(for: currentProvider)
+        // 添加余额信息（内联刷新图标）
+        let balanceTitle = balanceStatus.menuTitle(for: currentProvider)
+        let balanceItem = NSMenuItem(title: balanceTitle, action: #selector(refreshBalanceFromMenu), keyEquivalent: "")
+        balanceItem.target = self
+        balanceItem.isEnabled = currentProvider != nil
+        let iconAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+        let balanceAttributes = balanceStatus.menuAttributes
+        let attributed = NSMutableAttributedString(string: balanceTitle + "   ", attributes: balanceAttributes)
+        attributed.append(NSAttributedString(string: "🔄", attributes: iconAttributes))
+        balanceItem.attributedTitle = attributed
+        balanceItem.toolTip = "点击刷新余额"
         menu.addItem(balanceItem)
         
         if let provider = currentProvider {
@@ -252,6 +263,7 @@ class StatusBarController: NSObject {
             balanceStatus = .idle
             rebuildMenu()
             showNotification(title: "已切换到: \(provider.name)")
+            fetchCurrentBalance()
         } else {
             showNotification(title: "请先配置 \(provider.name) 的 API 密钥", subtitle: "点击设置菜单进行配置")
         }
@@ -307,11 +319,72 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
             name: .configDidChange,
             object: nil
         )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(balanceDidUpdate(_:)),
+            name: .balanceDidUpdate,
+            object: nil
+        )
     }
     
     @objc private func configDidChange() {
         balanceStatus = .idle
         rebuildMenu()
+        fetchCurrentBalance()
+    }
+    
+    @objc private func balanceDidUpdate(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let providerIdStr = userInfo["providerId"] as? String,
+              let providerId = UUID(uuidString: providerIdStr)
+        else { return }
+        
+        // 仅当更新的是当前配置时，刷新状态栏余额
+        if providerId != configManager.currentProvider?.id {
+            return
+        }
+        
+        if let error = userInfo["error"] as? String {
+            updateBalanceStatus(.failure(message: error))
+            return
+        }
+        
+        if let dollars = userInfo["dollars"] as? Double {
+            updateBalanceStatus(.success(amount: dollars, currency: "$"))
+        }
+    }
+    
+    @objc private func refreshBalanceFromMenu() {
+        fetchCurrentBalance()
+        
+        // 尝试在点击后重新打开菜单，避免菜单被关闭
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.statusItem.button?.performClick(nil)
+        }
+    }
+    
+    private func fetchCurrentBalance() {
+        guard let provider = configManager.currentProvider, provider.isValid else {
+            updateBalanceStatus(.failure(message: "请选择有效配置"))
+            return
+        }
+        
+        updateBalanceStatus(.loading)
+        
+        let tokensPerDollar = 500_000.0
+        balanceService.fetchBalance(for: provider) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .success(let balance):
+                    let dollars = Double(balance.availableTokens) / tokensPerDollar
+                    self.updateBalanceStatus(.success(amount: dollars, currency: "$"))
+                case .failure(let error):
+                    self.updateBalanceStatus(.failure(message: error.localizedDescription))
+                }
+            }
+        }
     }
     
     private func requestNotificationPermission() {

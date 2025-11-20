@@ -678,4 +678,5 @@ class ConfigManager: ObservableObject {
 // MARK: - Notification Names
 extension Notification.Name {
     static let configDidChange = Notification.Name("configDidChange")
+    static let balanceDidUpdate = Notification.Name("balanceDidUpdate")
 }
