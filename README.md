@@ -3,7 +3,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-macOS-blue" alt="Platform">
   <img src="https://img.shields.io/badge/Swift-5.0+-orange" alt="Swift">
-  <img src="https://img.shields.io/badge/macOS-13.0+-green" alt="macOS">
+  <img src="https://img.shields.io/badge/macOS-12.0+-green" alt="macOS">
   <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="License">
 </p>
 
@@ -12,6 +12,7 @@ A lightweight macOS status bar application for managing and quickly switching be
 ## ✨ Features
 
 - 🔄 **Quick Provider Switching** - Switch between different API providers with a single click from the status bar
+- 💰 **Balance Checking** - View real-time API balance with available tokens, total granted, and usage stats
 - 🎨 **Custom Provider Icons** - Set unique icons for each API provider for easy visual identification
 - 📊 **Token Usage Statistics** - Track and visualize API token usage for the last 3 days with detailed breakdowns
 - ⚙️ **Auto Configuration Sync** - Automatically syncs with Claude Code's settings.json
@@ -45,8 +46,8 @@ A lightweight macOS status bar application for managing and quickly switching be
 ### Option 2: Build from Source
 
 #### Prerequisites
-- macOS 13.0 or later
-- Xcode 14.0 or later
+- macOS 12.0 (Monterey) or later
+- Xcode 14.0 or later (or just Swift compiler)
 - Swift 5.0 or later
 
 #### Build Steps
@@ -55,12 +56,19 @@ A lightweight macOS status bar application for managing and quickly switching be
 git clone https://github.com/yourusername/MacOS-Claude-Code-Switcher.git
 cd MacOS-Claude-Code-Switcher
 
-# Build using the provided script
+# Build universal binary (Intel + Apple Silicon)
 ./build.sh
 
-# Or open in Xcode
+# Build specific architecture
+./build.sh --intel    # Intel-only
+./build.sh --arm      # Apple Silicon-only
+
+# Or build all versions
+./build-all.sh
+
+# Alternative: Open in Xcode
 open ClaudeCodeSwitcher.xcodeproj
-# Then press Cmd+B to build and Cmd+R to run
+# Press Cmd+B to build, Cmd+R to run
 ```
 
 ## 🎯 Usage
@@ -78,6 +86,15 @@ open ClaudeCodeSwitcher.xcodeproj
 4. **Switch Providers** - Click the status bar icon and select any provider to activate it
 
 ### Features in Detail
+
+#### Balance Checking (New!)
+- Click "Refresh Balance" button in provider settings
+- View real-time API balance information:
+  - Available tokens remaining
+  - Total granted tokens
+  - Total used tokens
+- Supports providers with `/api/usage/token` endpoint
+- Automatic auth preservation for HTTP redirects
 
 #### Custom Icons
 - Right-click on any provider in settings
@@ -103,27 +120,28 @@ open ClaudeCodeSwitcher.xcodeproj
 MacOS-Claude-Code-Switcher/
 ├── App/                    # Application lifecycle and window management
 ├── Models/                 # Data models (APIProvider, ClaudeConfig)
-├── Services/              # Business logic (ConfigManager, TokenStatistics)
+├── Services/              # Business logic (ConfigManager, TokenStatistics, BalanceService)
 ├── Views/                 # SwiftUI views and UI components
 ├── Resources/             # Assets, icons, and Info.plist
-└── Tests/                 # Unit and integration tests
+└── build.sh               # Build script for universal binary
 ```
 
 ### Key Technologies
 - **SwiftUI** - Modern declarative UI framework
-- **AppKit** - Status bar integration
+- **AppKit** - Status bar integration (manual NSApplication lifecycle)
 - **Combine** - Reactive programming for state management
 - **JSON File Storage** - Modern configuration management at `~/.config/ccs/claude-switch.json`
 - **Automatic Migration** - Seamless transition from UserDefaults to JSON
 - **JSONEncoder/Decoder** - Claude settings synchronization
+- **URLSessionTaskDelegate** - Auth-preserving HTTP redirect handling
 
 ### Building for Release
 ```bash
-# Create a release build
+# Create a universal release build
 ./build.sh
 
-# Run tests
-./test.sh
+# Verify architecture
+lipo -info build/ClaudeCodeSwitcher.app/Contents/MacOS/ClaudeCodeSwitcher
 
 # The built app will be in build/ClaudeCodeSwitcher.app
 ```
@@ -147,7 +165,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 📝 Requirements
 
-- **macOS**: 13.0 (Ventura) or later
+- **macOS**: 12.0 (Monterey) or later
 - **Storage**: ~10 MB
 - **Claude Code**: Compatible with all versions that use `~/.claude/settings.json`
 
@@ -162,11 +180,20 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 The app stores all your API providers, settings, and preferences in a JSON file:
 ```json
 {
-  "providers": [...],
+  "providers": [
+    {
+      "id": "UUID",
+      "name": "Provider Name",
+      "url": "https://api.example.com",
+      "key": "api-key-here",
+      "largeModel": "model-name",
+      "smallModel": "small-model-name",
+      "proxyHost": "optional-proxy-url",
+      "proxyPort": "optional-proxy-port"
+    }
+  ],
   "currentProvider": {...},
-  "autoUpdate": true,
-  "proxyHost": "",
-  "proxyPort": ""
+  "autoUpdate": true
 }
 ```
 
@@ -187,6 +214,13 @@ The app stores all your API providers, settings, and preferences in a JSON file:
 - Check if the app is running in Activity Monitor
 - Try restarting the app
 - Ensure you have granted necessary permissions
+
+### Balance checking not working
+- Verify your provider supports the `/api/usage/token` endpoint
+- Check that your API key has permission to access usage data
+- Ensure the base URL is correct (should not include `/api/usage/token`)
+- If using a proxy, verify proxy settings are correct
+- Check for HTTP redirects - the app handles them automatically
 
 ### Configuration not syncing with Claude Code
 - Verify `~/.claude/settings.json` exists
