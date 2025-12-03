@@ -11,19 +11,15 @@ struct SettingsView: View {
     @State private var balanceStatus: BalanceStatus = .idle
     @State private var selectedBalanceProvider: APIProvider?
     private let balanceService = BalanceService()
-    
+
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
-                // 当前配置卡片
+            VStack(spacing: 16) {
                 CurrentConfigCard(
                     currentProvider: configManager.currentProvider,
-                    selectedBalanceProvider: selectedBalanceProvider,
-                    balanceStatus: balanceStatus,
                     processStatus: claudeProcessStatus
                 )
-                
-                // 使用量统计卡片
+
                 UsageStatsCard(
                     balanceStatus: balanceStatus,
                     providers: configManager.providers,
@@ -38,13 +34,11 @@ struct SettingsView: View {
                         tokenStatsManager.refreshStats()
                     }
                 )
-                
-                // 可用配置列表
+
                 AvailableConfigsCard(
                     providers: configManager.providers,
                     currentProvider: configManager.currentProvider,
-                    selectedBalanceProvider: selectedBalanceProvider,
-                    balanceStatus: balanceStatus,
+                    groups: configManager.groups,
                     onEdit: { provider in
                         editingProvider = provider
                     },
@@ -56,13 +50,23 @@ struct SettingsView: View {
                     },
                     onSelect: { provider in
                         configManager.setCurrentProvider(provider)
+                    },
+                    onAddProvider: {
+                        showingAddProvider = true
+                    },
+                    onAddGroup: { name in
+                        configManager.addGroup(name)
+                    },
+                    onDeleteGroup: { name in
+                        configManager.removeGroup(name)
+                    },
+                    onMoveToGroup: { provider, groupName in
+                        var updated = provider
+                        updated.groupName = groupName
+                        configManager.updateProvider(updated)
                     }
                 )
-                
-                // Claude 进程监控
-                ClaudeProcessCard(status: claudeProcessStatus)
-                
-                // 代理设置
+
                 ProxySettingsCard(
                     proxyHost: $configManager.proxyHost,
                     proxyPort: $configManager.proxyPort,
@@ -74,26 +78,17 @@ struct SettingsView: View {
                             proxyPort: configManager.proxyPort,
                             autoStartup: configManager.autoStartup
                         )
-                    }
-                )
-                
-                // 底部操作按钮
-                ActionButtonsCard(
-                    onAddProvider: {
-                        showingAddProvider = true
                     },
                     onRefresh: {
                         checkClaudeProcess()
                     }
                 )
             }
-            .padding(20)
+            .padding(16)
         }
         .background(Color(.windowBackgroundColor))
-        .frame(width: 500, height: 700)
+        .frame(minWidth: 480, idealWidth: 520, minHeight: 600, idealHeight: 680)
         .onAppear {
-            print("=== SettingsView onAppear 被调用 ===")
-            print("=== 当前 configManager.providers 数量: \(configManager.providers.count) ===")
             configManager.reloadConfiguration()
             checkClaudeProcess()
             selectedBalanceProvider = configManager.currentProvider
@@ -115,15 +110,15 @@ struct SettingsView: View {
             }
         }
     }
-    
+
     private func refreshBalance(for provider: APIProvider?) {
         guard let provider else {
             balanceStatus = .failure(message: "请选择配置")
             return
         }
-        
+
         balanceStatus = .loading
-        
+
         balanceService.fetchBalance(for: provider) { result in
             switch result {
             case .success(let balance):
@@ -131,7 +126,6 @@ struct SettingsView: View {
                 let tokens = Double(tokensInt)
                 let dollars = tokens / 500_000.0
                 let now = Date()
-                print("余额查询成功，available tokens: \(tokensInt), totalGranted: \(balance.totalGranted ?? -1), totalUsed: \(balance.totalUsed ?? -1), 折合美元: \(dollars)")
                 DispatchQueue.main.async {
                     balanceStatus = .success(
                         amount: dollars,
@@ -140,7 +134,7 @@ struct SettingsView: View {
                         provider: provider,
                         tokens: tokensInt
                     )
-                    
+
                     NotificationCenter.default.post(
                         name: .balanceDidUpdate,
                         object: nil,
@@ -153,10 +147,9 @@ struct SettingsView: View {
                     )
                 }
             case .failure(let error):
-                print("余额查询失败: \(error.localizedDescription)")
                 DispatchQueue.main.async {
                     balanceStatus = .failure(message: error.localizedDescription)
-                    
+
                     NotificationCenter.default.post(
                         name: .balanceDidUpdate,
                         object: nil,
@@ -170,22 +163,21 @@ struct SettingsView: View {
             }
         }
     }
-    
+
     private func checkClaudeProcess() {
-        // 检查 Claude 进程状态的逻辑
         claudeProcessStatus = "正在检查..."
-        
+
         DispatchQueue.global().async {
             let task = Process()
             task.launchPath = "/bin/bash"
             task.arguments = ["-c", "pgrep -f claude"]
-            
+
             let pipe = Pipe()
             task.standardOutput = pipe
-            
+
             task.launch()
             task.waitUntilExit()
-            
+
             DispatchQueue.main.async {
                 if task.terminationStatus == 0 {
                     claudeProcessStatus = "运行中"
@@ -203,12 +195,12 @@ enum BalanceStatus: Equatable {
     case loading
     case success(amount: Double, currency: String, updatedAt: Date?, provider: APIProvider, tokens: Int?)
     case failure(message: String)
-    
+
     var isLoading: Bool {
         if case .loading = self { return true }
         return false
     }
-    
+
     var formattedAmount: String {
         switch self {
         case .success(let amount, let currency, _, _, _):
@@ -226,7 +218,7 @@ enum BalanceStatus: Equatable {
             return "--"
         }
     }
-    
+
     var detailText: String {
         switch self {
         case .idle:
@@ -250,7 +242,7 @@ enum BalanceStatus: Equatable {
             return "获取失败：\(message)"
         }
     }
-    
+
     var highlightColor: Color {
         switch self {
         case .success(let amount, let currency, _, _, _):
@@ -262,19 +254,6 @@ enum BalanceStatus: Equatable {
             return .orange
         default:
             return .secondary
-        }
-    }
-    
-    var compactLabel: String {
-        switch self {
-        case .success:
-            return "余额 \(formattedAmount)"
-        case .loading:
-            return "余额查询中"
-        case .failure:
-            return "余额获取失败"
-        case .idle:
-            return "余额未查询"
         }
     }
 }
@@ -297,33 +276,29 @@ struct UsageStatsCard: View {
     let isLoading: Bool
     let lastUpdateTime: Date?
     let onRefresh: () -> Void
-    
+
     var body: some View {
         CardView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 14) {
                 BalanceSummaryRow(
                     status: balanceStatus,
                     providers: providers,
                     selectedProvider: $selectedProvider,
                     onRefresh: onBalanceRefresh
                 )
-                
+
                 Divider()
-                
+
                 HStack {
-                    Image(systemName: "chart.bar.fill")
-                        .foregroundColor(.blue)
-                        .font(.title2)
-                    
                     Text("使用量统计")
-                        .font(.headline)
-                        .foregroundColor(.primary)
-                    
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+
                     Spacer()
-                    
+
                     if isLoading {
                         ProgressView()
-                            .scaleEffect(0.8)
+                            .scaleEffect(0.7)
                     } else {
                         Button("刷新") {
                             onRefresh()
@@ -331,196 +306,132 @@ struct UsageStatsCard: View {
                         .buttonStyle(CompactButtonStyle(color: .blue))
                     }
                 }
-                
+
                 if let stats = recentDaysStats {
-                    VStack(spacing: 16) {
-                        // 总计统计卡片
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("全部用量统计")
-                                .font(.subheadline)
-                                .font(Font.subheadline.weight(.semibold))
-                                .foregroundColor(.primary)
-                            
-                            HStack(spacing: 12) {
-                                StatsCardView(
-                                    title: "总费用",
-                                    value: TokenStatsData.formatCurrency(stats.totalStats.totalCost),
-                                    icon: "dollarsign.circle.fill",
-                                    color: .orange
-                                )
-                                
-                                StatsCardView(
-                                    title: "会话数",
-                                    value: "\(stats.totalStats.totalSessions)",
-                                    icon: "bubble.left.and.bubble.right.fill",
-                                    color: .blue
-                                )
-                                
-                                StatsCardView(
-                                    title: "Token总数",
-                                    value: TokenStatsData.formatNumber(stats.totalStats.totalTokens),
-                                    icon: "textformat.abc",
-                                    color: .green
-                                )
+                    VStack(spacing: 12) {
+                        HStack(spacing: 10) {
+                            MiniStatsCard(
+                                title: "总费用",
+                                value: TokenStatsData.formatCurrency(stats.totalStats.totalCost),
+                                color: .orange
+                            )
+
+                            MiniStatsCard(
+                                title: "会话数",
+                                value: "\(stats.totalStats.totalSessions)",
+                                color: .blue
+                            )
+
+                            MiniStatsCard(
+                                title: "Token",
+                                value: TokenStatsData.formatNumber(stats.totalStats.totalTokens),
+                                color: .green
+                            )
+                        }
+
+                        HStack(spacing: 6) {
+                            ForEach(stats.dailyStats, id: \.date) { dayStats in
+                                DayStatsMini(dayStats: dayStats)
                             }
                         }
-                        
-                        Divider()
-                        
-                        // 最近三天详情
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Image(systemName: "calendar.badge.clock")
-                                    .foregroundColor(.blue)
-                                    .font(.subheadline)
-                                Text("最近3天趋势")
-                                    .font(.subheadline)
-                                    .font(Font.subheadline.weight(.semibold))
-                                    .foregroundColor(.primary)
-                                Spacer()
-                            }
-                            
-                            // 三天卡片横向布局
-                            HStack(spacing: 8) {
-                                ForEach(stats.dailyStats, id: \.date) { dayStats in
-                                    VStack(spacing: 8) {
-                                        // 日期标题
-                                        VStack(spacing: 2) {
-                                            if Calendar.current.isDateInToday(dayStats.date) {
-                                                Text("今天")
-                                                    .font(.caption)
-                                                    .font(Font.caption.weight(.semibold))
-                                                    .foregroundColor(.blue)
-                                            } else if Calendar.current.isDateInYesterday(dayStats.date) {
-                                                Text("昨天")
-                                                    .font(.caption)
-                                                    .font(Font.caption.weight(.semibold))
-                                                    .foregroundColor(.secondary)
-                                            } else {
-                                                Text("前天")
-                                                    .font(.caption)
-                                                    .font(Font.caption.weight(.semibold))
-                                                    .foregroundColor(.secondary)
-                                            }
-                                            Text(DailyStatsData.formatDate(dayStats.date))
-                                                .font(.caption2)
-                                                .foregroundColor(.secondary)
-                                        }
-                                        
-                                        Divider()
-                                            .padding(.horizontal, 4)
-                                        
-                                        // 数据内容
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            // 会话数
-                                            HStack(spacing: 4) {
-                                                Image(systemName: "bubble.left.and.bubble.right")
-                                                    .font(.caption2)
-                                                    .foregroundColor(.blue)
-                                                Text("\(dayStats.sessionCount)")
-                                                    .font(.caption)
-                                                    .font(Font.caption.weight(.medium))
-                                                Text("会话")
-                                                    .font(.caption2)
-                                                    .foregroundColor(.secondary)
-                                            }
-                                            
-                                            // Token数
-                                            HStack(spacing: 4) {
-                                                Image(systemName: "textformat")
-                                                    .font(.caption2)
-                                                    .foregroundColor(.green)
-                                                Text(formatCompactNumber(dayStats.totalTokens))
-                                                    .font(.caption)
-                                                    .font(Font.caption.weight(.medium))
-                                                Text("Token")
-                                                    .font(.caption2)
-                                                    .foregroundColor(.secondary)
-                                            }
-                                            
-                                            // 费用
-                                            HStack(spacing: 4) {
-                                                Image(systemName: "dollarsign.circle")
-                                                    .font(.caption2)
-                                                    .foregroundColor(.orange)
-                                                Text(TokenStatsData.formatCurrency(dayStats.cost))
-                                                    .font(.caption)
-                                                    .font(Font.caption.weight(.medium))
-                                            }
-                                        }
-                                        
-                                        Spacer()
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(10)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(dayStats.totalTokens > 0 ? 
-                                                (Calendar.current.isDateInToday(dayStats.date) ? 
-                                                    Color.blue.opacity(0.1) : 
-                                                    Color(.controlBackgroundColor)) : 
-                                                Color(.controlBackgroundColor).opacity(0.5))
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(
-                                                Calendar.current.isDateInToday(dayStats.date) && dayStats.totalTokens > 0 ? 
-                                                    Color.blue.opacity(0.3) : 
-                                                    Color.clear, 
-                                                lineWidth: 1
-                                            )
-                                    )
-                                }
-                            }
-                            .frame(height: 120)
-                        }
-                        
-                        // 更新时间
+
                         if let updateTime = lastUpdateTime {
                             HStack {
                                 Spacer()
-                                Text("更新时间: \(formatTime(updateTime))")
+                                Text("更新于 \(formatTime(updateTime))")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                             }
                         }
                     }
                 } else {
-                    VStack(spacing: 12) {
-                        Image(systemName: "chart.bar.xaxis")
-                            .font(.largeTitle)
-                            .foregroundColor(.secondary)
-                        
-                        Text("暂无使用量数据")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
-                        
-                        Text("点击刷新按钮从 Claude 日志中加载实际使用数据")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 6) {
+                            Image(systemName: "chart.bar.xaxis")
+                                .font(.title3)
+                                .foregroundColor(.secondary)
+                            Text("暂无数据，点击刷新")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 12)
+                        Spacer()
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 20)
                 }
             }
         }
     }
-    
+
     private func formatTime(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
         return formatter.string(from: date)
     }
-    
-    private func formatCompactNumber(_ number: Int) -> String {
-        if number >= 1_000_000 {
-            return String(format: "%.1fM", Double(number) / 1_000_000)
-        } else if number >= 1_000 {
-            return String(format: "%.1fK", Double(number) / 1_000)
-        } else {
-            return "\(number)"
+}
+
+struct MiniStatsCard: View {
+    let title: String
+    let value: String
+    let color: Color
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+
+            Text(title)
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(color.opacity(0.1))
+        )
+    }
+}
+
+struct DayStatsMini: View {
+    let dayStats: DailyStatsData
+
+    private var dayLabel: String {
+        if Calendar.current.isDateInToday(dayStats.date) {
+            return "今天"
+        } else if Calendar.current.isDateInYesterday(dayStats.date) {
+            return "昨天"
+        } else {
+            return "前天"
+        }
+    }
+
+    private var isToday: Bool {
+        Calendar.current.isDateInToday(dayStats.date)
+    }
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(dayLabel)
+                .font(.caption2)
+                .fontWeight(isToday ? .semibold : .regular)
+                .foregroundColor(isToday ? .blue : .secondary)
+
+            Text(TokenStatsData.formatCurrency(dayStats.cost))
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundColor(.primary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isToday ? Color.blue.opacity(0.1) : Color(.controlBackgroundColor))
+        )
     }
 }
 
@@ -529,251 +440,121 @@ struct BalanceSummaryRow: View {
     let providers: [APIProvider]
     @Binding var selectedProvider: APIProvider?
     let onRefresh: (APIProvider?) -> Void
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: "wallet.pass.fill")
-                    .foregroundColor(.orange)
-                    .font(.title3)
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("账户余额")
-                        .font(.subheadline)
-                        .foregroundColor(.primary)
-                    
-                    Text(status.detailText)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("账户余额")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+
                 Spacer()
-                
-                HStack(spacing: 8) {
-                    if status.isLoading {
-                        ProgressView()
-                            .scaleEffect(0.9)
-                    } else {
-                        Text(status.formattedAmount)
-                            .font(.title3)
-                            .fontWeight(.semibold)
-                            .foregroundColor(status.highlightColor)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule()
-                                    .fill(status.highlightColor.opacity(0.1))
-                            )
-                    }
-                    
-                    Button("查询余额") {
-                        onRefresh(selectedProvider)
-                    }
-                    .buttonStyle(CompactButtonStyle(color: .orange))
-                    .disabled(status.isLoading || selectedProvider == nil)
+
+                if status.isLoading {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                } else {
+                    Text(status.formattedAmount)
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                        .foregroundColor(status.highlightColor)
                 }
             }
-            
-            HStack(spacing: 12) {
+
+            HStack(spacing: 8) {
                 Menu {
-                    if providers.isEmpty {
-                        Text("暂无配置")
-                    } else {
-                        ForEach(providers) { provider in
-                            Button(provider.name) {
-                                selectedProvider = provider
-                            }
+                    ForEach(providers) { provider in
+                        Button(provider.name) {
+                            selectedProvider = provider
                         }
                     }
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "rectangle.and.pencil.and.ellipsis")
+                    HStack(spacing: 4) {
                         Text(selectedProvider?.name ?? "选择配置")
+                            .font(.caption)
                         Image(systemName: "chevron.down")
                             .font(.caption2)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
                     .background(
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: 6)
                             .stroke(Color(.separatorColor), lineWidth: 1)
                     )
                 }
-                .menuStyle(BorderlessButtonMenuStyle())
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("配置地址")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(selectedProvider?.url ?? "请选择需要查询余额的配置")
-                        .font(.caption)
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                .menuStyle(.borderlessButton)
+
+                Spacer()
+
+                Button("查询") {
+                    onRefresh(selectedProvider)
                 }
+                .buttonStyle(CompactButtonStyle(color: .orange))
+                .disabled(status.isLoading || selectedProvider == nil)
             }
+
+            Text(status.detailText)
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
-        .padding(12)
+        .padding(10)
         .background(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 8)
                 .fill(Color(.textBackgroundColor))
         )
-    }
-}
-
-// MARK: - 统计卡片视图
-struct StatsCardView: View {
-    let title: String
-    let value: String
-    let icon: String
-    let color: Color
-    
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Image(systemName: icon)
-                    .foregroundColor(color)
-                    .font(.title3)
-                
-                Spacer()
-            }
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                Text(value)
-                    .font(.title2)
-                    .font(Font.body.weight(.semibold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(color.opacity(0.1))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(color.opacity(0.3), lineWidth: 1)
-        )
-    }
-}
-
-// MARK: - 详情行视图
-struct DetailRowView: View {
-    let label: String
-    let value: String
-    
-    var body: some View {
-        HStack {
-            Text(label)
-                .font(.caption)
-                .foregroundColor(.secondary)
-            
-            Spacer()
-            
-            Text(value)
-                .font(.caption)
-                .font(Font.subheadline.weight(.medium))
-                .foregroundColor(.primary)
-        }
     }
 }
 
 // MARK: - 当前配置卡片
 struct CurrentConfigCard: View {
     let currentProvider: APIProvider?
-    let selectedBalanceProvider: APIProvider?
-    let balanceStatus: BalanceStatus
     let processStatus: String
-    
+
     var body: some View {
         CardView {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                        .font(.title2)
-                    
-                    Text("当前配置")
-                        .font(.headline)
-                        .foregroundColor(.primary)
-                    
-                    Spacer()
-                    
-                    StatusBadge(status: processStatus)
-                }
-                
+            HStack(spacing: 12) {
                 if let provider = currentProvider {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(provider.name)
-                                .font(.title3)
-                                .font(Font.body.weight(.semibold))
-                            
-                            Text(provider.url)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                            
-                            if let model = provider.largeModel {
-                                Label("模型: \(model)", systemImage: "brain")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        
-                        Spacer()
-                        
-                        // 连接状态指示器
-                        VStack(spacing: 6) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
                             Circle()
-                                .fill(provider.isValid ? Color.green : Color.red)
-                                .frame(width: 12, height: 12)
-                            
-                            Text(provider.isValid ? "已配置" : "配置错误")
+                                .fill(provider.isValid ? Color.green : Color.orange)
+                                .frame(width: 8, height: 8)
+
+                            Text(provider.name)
+                                .font(.headline)
+
+                            Spacer()
+
+                            StatusBadge(status: processStatus)
+                        }
+
+                        Text(provider.url)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+
+                        if let model = provider.largeModel {
+                            Text(model)
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
-                            
-                            Text(balanceStatus.compactLabel)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                            
-                            if let selectedBalanceProvider {
-                                Text("余额查询: \(selectedBalanceProvider.name)")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.7)
-                            }
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.blue.opacity(0.1))
+                                .cornerRadius(4)
                         }
                     }
                 } else {
-                    HStack {
+                    HStack(spacing: 8) {
                         Image(systemName: "gear.badge.questionmark")
                             .foregroundColor(.orange)
-                            .font(.title2)
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("未选择配置")
-                                .font(.subheadline)
-                                .font(Font.subheadline.weight(.medium))
-                            
-                            Text("请在下方选择或添加配置")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        
+
+                        Text("未选择配置")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+
                         Spacer()
+
+                        StatusBadge(status: processStatus)
                     }
                 }
             }
@@ -785,243 +566,329 @@ struct CurrentConfigCard: View {
 struct AvailableConfigsCard: View {
     let providers: [APIProvider]
     let currentProvider: APIProvider?
-    let selectedBalanceProvider: APIProvider?
-    let balanceStatus: BalanceStatus
+    let groups: [String]
     let onEdit: (APIProvider) -> Void
     let onDelete: (APIProvider) -> Void
     let onCopy: (APIProvider) -> Void
     let onSelect: (APIProvider) -> Void
-    
+    let onAddProvider: () -> Void
+    let onAddGroup: (String) -> Void
+    let onDeleteGroup: (String) -> Void
+    let onMoveToGroup: (APIProvider, String?) -> Void
+
+    @State private var showingAddGroup = false
+    @State private var newGroupName = ""
+    @State private var collapsedGroups: Set<String> = []
+
+    private func groupedProviders() -> [(group: String?, providers: [APIProvider])] {
+        var result: [(group: String?, providers: [APIProvider])] = []
+
+        for group in groups {
+            let groupProviders = providers.filter { $0.groupName == group }
+            result.append((group: group, providers: groupProviders))
+        }
+
+        let ungrouped = providers.filter { $0.groupName == nil || $0.groupName?.isEmpty == true }
+        if !ungrouped.isEmpty || groups.isEmpty {
+            result.append((group: nil, providers: ungrouped))
+        }
+
+        return result
+    }
+
     var body: some View {
         CardView {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Image(systemName: "list.bullet.rectangle")
-                        .foregroundColor(.blue)
-                        .font(.title2)
-                    
-                    Text("可用配置")
+                    Text("配置列表")
                         .font(.headline)
-                        .foregroundColor(.primary)
-                    
+
                     Spacer()
-                    
-                    // 配置数量标识
-                    Text("\(providers.count)")
-                        .font(.caption)
-                        .font(Font.subheadline.weight(.medium))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.blue.opacity(0.2))
-                        )
-                        .foregroundColor(.blue)
-                }
-                
-                if providers.isEmpty {
-                    VStack(spacing: 12) {
+
+                    Button(action: { showingAddGroup = true }) {
                         Image(systemName: "folder.badge.plus")
-                            .font(.largeTitle)
-                            .foregroundColor(.secondary)
-                        
-                        Text("暂无配置")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
-                        
-                        Text("点击下方\"添加配置\"按钮开始使用")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 20)
+                    .buttonStyle(CompactButtonStyle(color: .orange))
+                    .help("添加分组")
+
+                    Button(action: onAddProvider) {
+                        Label("添加", systemImage: "plus")
+                    }
+                    .buttonStyle(CompactButtonStyle(color: .blue))
+                }
+
+                if providers.isEmpty {
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 8) {
+                            Image(systemName: "folder.badge.plus")
+                                .font(.title2)
+                                .foregroundColor(.secondary)
+                            Text("暂无配置")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 16)
+                        Spacer()
+                    }
                 } else {
-                    LazyVStack(spacing: 8) {
-                        ForEach(providers) { provider in
-                            ProviderRowView(
-                                provider: provider,
-                                isCurrent: provider.id == currentProvider?.id,
-                                isBalanceTarget: provider.id == selectedBalanceProvider?.id,
-                                balanceStatus: balanceStatus,
+                    VStack(spacing: 10) {
+                        ForEach(groupedProviders(), id: \.group) { item in
+                            GroupSection(
+                                groupName: item.group,
+                                providers: item.providers,
+                                currentProvider: currentProvider,
+                                groups: groups,
+                                isCollapsed: collapsedGroups.contains(item.group ?? ""),
+                                onToggle: {
+                                    let key = item.group ?? ""
+                                    if collapsedGroups.contains(key) {
+                                        collapsedGroups.remove(key)
+                                    } else {
+                                        collapsedGroups.insert(key)
+                                    }
+                                },
                                 onEdit: onEdit,
                                 onDelete: onDelete,
                                 onCopy: onCopy,
-                                onSelect: onSelect
+                                onSelect: onSelect,
+                                onMoveToGroup: onMoveToGroup,
+                                onDeleteGroup: item.group != nil ? { onDeleteGroup(item.group!) } : nil
                             )
                         }
                     }
                 }
             }
         }
+        .sheet(isPresented: $showingAddGroup) {
+            AddGroupSheet(
+                groupName: $newGroupName,
+                onAdd: {
+                    if !newGroupName.isEmpty {
+                        onAddGroup(newGroupName)
+                        newGroupName = ""
+                    }
+                    showingAddGroup = false
+                },
+                onCancel: {
+                    newGroupName = ""
+                    showingAddGroup = false
+                }
+            )
+        }
     }
 }
 
-// MARK: - 提供商行视图
-struct ProviderRowView: View {
-    let provider: APIProvider
-    let isCurrent: Bool
-    let isBalanceTarget: Bool
-    let balanceStatus: BalanceStatus
+// MARK: - 分组区块
+struct GroupSection: View {
+    let groupName: String?
+    let providers: [APIProvider]
+    let currentProvider: APIProvider?
+    let groups: [String]
+    let isCollapsed: Bool
+    let onToggle: () -> Void
     let onEdit: (APIProvider) -> Void
     let onDelete: (APIProvider) -> Void
     let onCopy: (APIProvider) -> Void
     let onSelect: (APIProvider) -> Void
-    
+    let onMoveToGroup: (APIProvider, String?) -> Void
+    let onDeleteGroup: (() -> Void)?
+
     var body: some View {
-        HStack(spacing: 12) {
-            // 状态指示器
-            VStack(spacing: 4) {
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 10, height: 10)
-                
-                if isCurrent {
-                    Text("当前")
-                        .font(.caption2)
-                        .foregroundColor(.green)
-                }
-            }
-            .frame(width: 30)
-            
-            // 主要信息
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(provider.name)
-                        .font(.subheadline)
-                        .font(Font.subheadline.weight(.medium))
-                        .foregroundColor(isCurrent ? .green : .primary)
-                    
-                    if isCurrent {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .font(.caption)
-                    }
-                    
-                    if !provider.isValid {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.orange)
-                            .font(.caption)
-                    }
-                }
-                
-                Text(provider.url)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                
-                if let model = provider.largeModel {
-                    Text("主模型: \(model)")
+        VStack(alignment: .leading, spacing: 6) {
+            Button(action: onToggle) {
+                HStack(spacing: 6) {
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-                
-                HStack(spacing: 6) {
-                    Image(systemName: "wallet.pass")
-                        .foregroundColor(balanceDisplay.color)
-                        .font(.caption2)
-                    Text(balanceDisplay.text)
-                        .font(.caption2)
-                        .foregroundColor(balanceDisplay.color)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-            }
-            
-            Spacer()
-            
-            // 操作按钮
-            HStack(spacing: 6) {
-                if !isCurrent && provider.isValid {
-                    Button("选择") {
-                        onSelect(provider)
+                        .frame(width: 12)
+
+                    if let name = groupName {
+                        Image(systemName: "folder.fill")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                        Text(name)
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    } else {
+                        Image(systemName: "tray")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("未分组")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
-                    .buttonStyle(CompactButtonStyle(color: .green))
+
+                    Text("(\(providers.count))")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+
+                    Spacer()
+
+                    if let onDeleteGroup = onDeleteGroup {
+                        Button(action: onDeleteGroup) {
+                            Image(systemName: "trash")
+                                .font(.caption2)
+                                .foregroundColor(.red.opacity(0.7))
+                        }
+                        .buttonStyle(.plain)
+                        .help("删除分组")
+                    }
                 }
-                
-                Button("复制") {
-                    onCopy(provider)
-                }
-                .buttonStyle(CompactButtonStyle(color: .purple))
-                
-                Button("编辑") {
-                    onEdit(provider)
-                }
-                .buttonStyle(CompactButtonStyle(color: .blue))
-                
-                Button("删除") {
-                    onDelete(provider)
-                }
-                .buttonStyle(CompactButtonStyle(color: .red))
             }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isCurrent ? Color.green.opacity(0.1) : Color(.controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isCurrent ? Color.green.opacity(0.3) : Color.clear, lineWidth: 1)
-        )
-    }
-    
-    private var statusColor: Color {
-        if isCurrent {
-            return .green
-        } else if provider.isValid {
-            return .blue
-        } else {
-            return .orange
-        }
-    }
-    
-    private var balanceDisplay: (text: String, color: Color) {
-        guard isBalanceTarget else {
-            return ("余额: --", .secondary)
-        }
-        
-        switch balanceStatus {
-        case .loading:
-            return ("余额: 查询中...", .secondary)
-        case .success(let amount, let currency, _, _, _):
-            let color: Color = amount < 5.0 ? .orange : .green
-            return ("余额: \(currency)\(String(format: "%.2f", amount))", color)
-        case .failure:
-            return ("余额: 获取失败", .orange)
-        case .idle:
-            return ("余额: 未查询", .secondary)
+            .buttonStyle(.plain)
+
+            if !isCollapsed {
+                VStack(spacing: 4) {
+                    ForEach(providers) { provider in
+                        ProviderRowCompact(
+                            provider: provider,
+                            isCurrent: provider.id == currentProvider?.id,
+                            groups: groups,
+                            onEdit: onEdit,
+                            onDelete: onDelete,
+                            onCopy: onCopy,
+                            onSelect: onSelect,
+                            onMoveToGroup: onMoveToGroup
+                        )
+                    }
+                }
+                .padding(.leading, 18)
+            }
         }
     }
 }
 
-// MARK: - Claude 进程监控卡片
-struct ClaudeProcessCard: View {
-    let status: String
-    
+// MARK: - 添加分组弹窗
+struct AddGroupSheet: View {
+    @Binding var groupName: String
+    let onAdd: () -> Void
+    let onCancel: () -> Void
+
     var body: some View {
-        CardView {
-            HStack {
-                Image(systemName: "cpu")
-                    .foregroundColor(.blue)
-                    .font(.title2)
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Claude 进程状态")
-                        .font(.headline)
-                    
-                    Text(status)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                
-                Spacer()
-                
-                StatusBadge(status: status)
+        VStack(spacing: 16) {
+            Text("添加分组")
+                .font(.headline)
+
+            TextField("分组名称", text: $groupName)
+                .textFieldStyle(ModernTextFieldStyle())
+
+            HStack(spacing: 12) {
+                Button("取消", action: onCancel)
+                    .buttonStyle(SecondaryButtonStyle())
+
+                Button("添加", action: onAdd)
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(groupName.isEmpty)
             }
         }
+        .padding(20)
+        .frame(width: 280)
+    }
+}
+
+// MARK: - 精简版提供商行
+struct ProviderRowCompact: View {
+    let provider: APIProvider
+    let isCurrent: Bool
+    let groups: [String]
+    let onEdit: (APIProvider) -> Void
+    let onDelete: (APIProvider) -> Void
+    let onCopy: (APIProvider) -> Void
+    let onSelect: (APIProvider) -> Void
+    let onMoveToGroup: (APIProvider, String?) -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(isCurrent ? Color.green : (provider.isValid ? Color.blue.opacity(0.5) : Color.orange))
+                .frame(width: 8, height: 8)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(provider.name)
+                        .font(.subheadline)
+                        .fontWeight(isCurrent ? .semibold : .regular)
+                        .foregroundColor(isCurrent ? .green : .primary)
+
+                    if isCurrent {
+                        Text("当前")
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.green.opacity(0.2))
+                            .foregroundColor(.green)
+                            .cornerRadius(3)
+                    }
+                }
+
+                Text(provider.url)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Menu {
+                if !isCurrent && provider.isValid {
+                    Button(action: { onSelect(provider) }) {
+                        Label("选择", systemImage: "checkmark.circle")
+                    }
+                    Divider()
+                }
+
+                Menu("移动到分组") {
+                    Button(action: { onMoveToGroup(provider, nil) }) {
+                        HStack {
+                            Text("未分组")
+                            if provider.groupName == nil || provider.groupName?.isEmpty == true {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+
+                    if !groups.isEmpty {
+                        Divider()
+                        ForEach(groups, id: \.self) { group in
+                            Button(action: { onMoveToGroup(provider, group) }) {
+                                HStack {
+                                    Text(group)
+                                    if provider.groupName == group {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Divider()
+                Button(action: { onEdit(provider) }) {
+                    Label("编辑", systemImage: "pencil")
+                }
+                Button(action: { onCopy(provider) }) {
+                    Label("复制", systemImage: "doc.on.doc")
+                }
+                Divider()
+                Button(role: .destructive, action: { onDelete(provider) }) {
+                    Label("删除", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 20)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isCurrent ? Color.green.opacity(0.08) : Color(.controlBackgroundColor))
+        )
     }
 }
 
@@ -1031,134 +898,71 @@ struct ProxySettingsCard: View {
     @Binding var proxyPort: String
     @Binding var autoStartup: Bool
     let onSave: () -> Void
+    let onRefresh: () -> Void
     @ObservedObject private var configManager = ConfigManager.shared
     @State private var launchAgentStatus: Bool = false
-    
+
     var body: some View {
         CardView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
                 Text("应用设置")
                     .font(.headline)
-                    .foregroundColor(.primary)
-                
-                // 开机自启动设置
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Image(systemName: "power")
-                            .foregroundColor(.green)
-                            .font(.title2)
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("开机自动启动")
-                                .font(.subheadline)
-                                .font(Font.subheadline.weight(.medium))
-                            
-                            Text("启用后应用将在系统启动时自动运行")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        Spacer()
-                        
-                        Toggle("", isOn: $autoStartup)
-                            .toggleStyle(SwitchToggleStyle())
-                    }
-                    
-                    // 显示 Launch Agent 状态
-                    if autoStartup {
-                        HStack {
-                            Image(systemName: launchAgentStatus ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                .foregroundColor(launchAgentStatus ? .green : .orange)
-                                .font(.caption)
-                            
-                            Text(launchAgentStatus ? "Launch Agent 已正确安装" : "Launch Agent 未正确安装，点击保存修复")
-                                .font(.caption)
-                                .foregroundColor(launchAgentStatus ? .green : .orange)
-                            
-                            Spacer()
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(launchAgentStatus ? Color.green.opacity(0.1) : Color.orange.opacity(0.1))
-                        )
-                    }
-                }
-                
-                Divider()
-                
-                // 代理设置标题
+
                 HStack {
-                    Image(systemName: "network")
-                        .foregroundColor(.blue)
-                        .font(.title2)
-                    
-                    Text("代理设置")
-                        .font(.subheadline)
-                        .font(Font.subheadline.weight(.medium))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("开机自动启动")
+                            .font(.subheadline)
+
+                        Text("应用将在系统启动时自动运行")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    Toggle("", isOn: $autoStartup)
+                        .toggleStyle(SwitchToggleStyle())
+                        .labelsHidden()
                 }
-                
+
+                Divider()
+
+                Text("代理设置")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+
                 HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("服务器地址")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
-                        TextField("代理服务器", text: $proxyHost)
-                            .textFieldStyle(ModernTextFieldStyle())
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("端口")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
-                        TextField("端口", text: $proxyPort)
-                            .textFieldStyle(ModernTextFieldStyle())
-                            .frame(width: 80)
-                    }
+                    TextField("服务器地址", text: $proxyHost)
+                        .textFieldStyle(ModernTextFieldStyle())
+
+                    TextField("端口", text: $proxyPort)
+                        .textFieldStyle(ModernTextFieldStyle())
+                        .frame(width: 70)
                 }
-                
-                Button("保存设置") {
-                    onSave()
-                    // 保存后稍等再检测一次 Launch Agent 状态并更新界面
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        launchAgentStatus = configManager.checkLaunchAgentStatus()
+
+                HStack(spacing: 8) {
+                    Button("保存设置") {
+                        onSave()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            launchAgentStatus = configManager.checkLaunchAgentStatus()
+                        }
                     }
+                    .buttonStyle(PrimaryButtonStyle())
+
+                    Button("刷新状态") {
+                        onRefresh()
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
                 }
-                .buttonStyle(PrimaryButtonStyle())
             }
         }
         .onAppear {
-            // 初始展示 Launch Agent 安装状态
             launchAgentStatus = configManager.checkLaunchAgentStatus()
         }
         .onChange(of: autoStartup) { _ in
-            // 开关变化时，稍后刷新一次状态显示
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 launchAgentStatus = configManager.checkLaunchAgentStatus()
             }
-        }
-    }
-}
-
-// MARK: - 操作按钮卡片
-struct ActionButtonsCard: View {
-    let onAddProvider: () -> Void
-    let onRefresh: () -> Void
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            Button("添加配置") {
-                onAddProvider()
-            }
-            .buttonStyle(PrimaryButtonStyle())
-            
-            Button("刷新状态") {
-                onRefresh()
-            }
-            .buttonStyle(SecondaryButtonStyle())
         }
     }
 }
@@ -1167,25 +971,25 @@ struct ActionButtonsCard: View {
 
 struct CardView<Content: View>: View {
     let content: Content
-    
+
     init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
-    
+
     var body: some View {
         content
-            .padding(16)
+            .padding(14)
             .background(
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: 10)
                     .fill(Color(.controlBackgroundColor))
-                    .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
+                    .shadow(color: .black.opacity(0.08), radius: 2, x: 0, y: 1)
             )
     }
 }
 
 struct StatusBadge: View {
     let status: String
-    
+
     private var badgeColor: Color {
         switch status {
         case "运行中":
@@ -1198,16 +1002,16 @@ struct StatusBadge: View {
             return .gray
         }
     }
-    
+
     var body: some View {
         Text(status)
-            .font(.caption)
-            .font(Font.subheadline.weight(.medium))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .font(.caption2)
+            .fontWeight(.medium)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(badgeColor.opacity(0.2))
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(badgeColor.opacity(0.15))
             )
             .foregroundColor(badgeColor)
     }
@@ -1219,16 +1023,16 @@ struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline)
-            .font(Font.subheadline.weight(.medium))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .fontWeight(.medium)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 6)
                     .fill(Color.accentColor)
                     .opacity(configuration.isPressed ? 0.8 : 1.0)
             )
             .foregroundColor(.white)
-            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
     }
 }
@@ -1236,39 +1040,41 @@ struct PrimaryButtonStyle: ButtonStyle {
 struct SecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(Font.subheadline.weight(.medium))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .font(.subheadline)
+            .fontWeight(.medium)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 6)
                     .fill(Color(.controlBackgroundColor))
                     .opacity(configuration.isPressed ? 0.8 : 1.0)
             )
             .foregroundColor(.primary)
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 6)
                     .stroke(Color(.separatorColor), lineWidth: 1)
             )
-            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
     }
 }
 
 struct CompactButtonStyle: ButtonStyle {
     let color: Color
-    
+
     init(color: Color = .accentColor) {
         self.color = color
     }
-    
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(Font.caption.weight(.medium))
+            .font(.caption)
+            .fontWeight(.medium)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(color.opacity(0.1))
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(color.opacity(0.12))
                     .opacity(configuration.isPressed ? 0.8 : 1.0)
             )
             .foregroundColor(color)
@@ -1281,20 +1087,20 @@ struct ModernTextFieldStyle: TextFieldStyle {
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration
             .textFieldStyle(.plain)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 6)
                     .fill(Color(.textBackgroundColor))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: 6)
                             .stroke(Color(.separatorColor), lineWidth: 1)
                     )
             )
     }
 }
 
-// MARK: - 添加和编辑提供商视图 (使用新样式)
+// MARK: - 添加和编辑提供商视图
 
 struct AddProviderView: View {
     @State private var name: String = ""
@@ -1302,71 +1108,55 @@ struct AddProviderView: View {
     @State private var key: String = ""
     @State private var largeModel: String = ""
     @State private var smallModel: String = ""
+    @State private var selectedGroup: String = ""
     @Environment(\.dismiss) private var dismiss
-    
+    @ObservedObject private var configManager = ConfigManager.shared
+
     let onAdd: (APIProvider) -> Void
-    
+
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Text("添加 API 提供商")
-                .font(.title2)
+                .font(.title3)
                 .fontWeight(.semibold)
-            
-            VStack(spacing: 16) {
+
+            VStack(spacing: 12) {
+                FormField(label: "名称", placeholder: "输入提供商名称", text: $name)
+                FormField(label: "API URL", placeholder: "输入 API 地址", text: $url)
+                FormField(label: "API 密钥", placeholder: "输入 API 密钥", text: $key)
+                FormField(label: "大模型（可选）", placeholder: "claude-3-opus-20240229", text: $largeModel)
+                FormField(label: "小模型（可选）", placeholder: "claude-3-haiku-20240307", text: $smallModel)
+
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("名称")
+                    Text("分组（可选）")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    TextField("输入提供商名称", text: $name)
-                        .textFieldStyle(ModernTextFieldStyle())
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("API URL")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField("输入 API 地址", text: $url)
-                        .textFieldStyle(ModernTextFieldStyle())
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("API 密钥")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField("输入 API 密钥", text: $key)
-                        .textFieldStyle(ModernTextFieldStyle())
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("大模型（可选）")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField("如：claude-3-opus-20240229", text: $largeModel)
-                        .textFieldStyle(ModernTextFieldStyle())
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("小模型（可选）")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField("如：claude-3-haiku-20240307", text: $smallModel)
-                        .textFieldStyle(ModernTextFieldStyle())
+
+                    Picker("", selection: $selectedGroup) {
+                        Text("未分组").tag("")
+                        ForEach(configManager.groups, id: \.self) { group in
+                            Text(group).tag(group)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            
+
             HStack(spacing: 12) {
                 Button("取消") {
                     dismiss()
                 }
                 .buttonStyle(SecondaryButtonStyle())
-                
+
                 Button("添加") {
                     let provider = APIProvider(
                         name: name,
                         url: url,
                         key: key,
                         largeModel: largeModel.isEmpty ? nil : largeModel,
-                        smallModel: smallModel.isEmpty ? nil : smallModel
+                        smallModel: smallModel.isEmpty ? nil : smallModel,
+                        groupName: selectedGroup.isEmpty ? nil : selectedGroup
                     )
                     onAdd(provider)
                     dismiss()
@@ -1375,8 +1165,8 @@ struct AddProviderView: View {
                 .buttonStyle(PrimaryButtonStyle())
             }
         }
-        .padding(24)
-        .frame(width: 450, height: 500)
+        .padding(20)
+        .frame(width: 400, height: 480)
         .background(Color(.windowBackgroundColor))
     }
 }
@@ -1387,11 +1177,13 @@ struct EditProviderView: View {
     @State private var key: String
     @State private var largeModel: String
     @State private var smallModel: String
+    @State private var selectedGroup: String
     @Environment(\.dismiss) private var dismiss
-    
+    @ObservedObject private var configManager = ConfigManager.shared
+
     let provider: APIProvider
     let onUpdate: (APIProvider) -> Void
-    
+
     init(provider: APIProvider, onUpdate: @escaping (APIProvider) -> Void) {
         self.provider = provider
         self.onUpdate = onUpdate
@@ -1400,62 +1192,44 @@ struct EditProviderView: View {
         self._key = State(initialValue: provider.key)
         self._largeModel = State(initialValue: provider.largeModel ?? "")
         self._smallModel = State(initialValue: provider.smallModel ?? "")
+        self._selectedGroup = State(initialValue: provider.groupName ?? "")
     }
-    
+
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Text("编辑 API 提供商")
-                .font(.title2)
+                .font(.title3)
                 .fontWeight(.semibold)
-            
-            VStack(spacing: 16) {
+
+            VStack(spacing: 12) {
+                FormField(label: "名称", placeholder: "输入提供商名称", text: $name)
+                FormField(label: "API URL", placeholder: "输入 API 地址", text: $url)
+                FormField(label: "API 密钥", placeholder: "输入 API 密钥", text: $key)
+                FormField(label: "大模型（可选）", placeholder: "claude-3-opus-20240229", text: $largeModel)
+                FormField(label: "小模型（可选）", placeholder: "claude-3-haiku-20240307", text: $smallModel)
+
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("名称")
+                    Text("分组（可选）")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    TextField("输入提供商名称", text: $name)
-                        .textFieldStyle(ModernTextFieldStyle())
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("API URL")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField("输入 API 地址", text: $url)
-                        .textFieldStyle(ModernTextFieldStyle())
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("API 密钥")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField("输入 API 密钥", text: $key)
-                        .textFieldStyle(ModernTextFieldStyle())
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("大模型（可选）")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField("如：claude-3-opus-20240229", text: $largeModel)
-                        .textFieldStyle(ModernTextFieldStyle())
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("小模型（可选）")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField("如：claude-3-haiku-20240307", text: $smallModel)
-                        .textFieldStyle(ModernTextFieldStyle())
+
+                    Picker("", selection: $selectedGroup) {
+                        Text("未分组").tag("")
+                        ForEach(configManager.groups, id: \.self) { group in
+                            Text(group).tag(group)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            
+
             HStack(spacing: 12) {
                 Button("取消") {
                     dismiss()
                 }
                 .buttonStyle(SecondaryButtonStyle())
-                
+
                 Button("保存") {
                     var updatedProvider = provider
                     updatedProvider.name = name
@@ -1463,6 +1237,7 @@ struct EditProviderView: View {
                     updatedProvider.key = key
                     updatedProvider.largeModel = largeModel.isEmpty ? nil : largeModel
                     updatedProvider.smallModel = smallModel.isEmpty ? nil : smallModel
+                    updatedProvider.groupName = selectedGroup.isEmpty ? nil : selectedGroup
                     onUpdate(updatedProvider)
                     dismiss()
                 }
@@ -1470,8 +1245,24 @@ struct EditProviderView: View {
                 .buttonStyle(PrimaryButtonStyle())
             }
         }
-        .padding(24)
-        .frame(width: 450, height: 500)
+        .padding(20)
+        .frame(width: 400, height: 480)
         .background(Color(.windowBackgroundColor))
+    }
+}
+
+struct FormField: View {
+    let label: String
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            TextField(placeholder, text: $text)
+                .textFieldStyle(ModernTextFieldStyle())
+        }
     }
 }

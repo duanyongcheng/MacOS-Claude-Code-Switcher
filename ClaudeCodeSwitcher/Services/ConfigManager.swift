@@ -10,43 +10,45 @@ struct AppConfig: Codable {
     let proxyHost: String
     let proxyPort: String
     let autoStartup: Bool
-    
+    let groups: [String]
+
     enum CodingKeys: String, CodingKey {
-        case providers, currentProvider, autoUpdate, proxyHost, proxyPort, autoStartup
+        case providers, currentProvider, autoUpdate, proxyHost, proxyPort, autoStartup, groups
     }
-    
-    // 自定义解码，处理旧配置文件中没有 autoStartup 的情况
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        
+
         self.providers = try container.decode([APIProvider].self, forKey: .providers)
         self.currentProvider = try container.decodeIfPresent(APIProvider.self, forKey: .currentProvider)
         self.autoUpdate = try container.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? true
         self.proxyHost = try container.decodeIfPresent(String.self, forKey: .proxyHost) ?? ""
         self.proxyPort = try container.decodeIfPresent(String.self, forKey: .proxyPort) ?? ""
         self.autoStartup = try container.decodeIfPresent(Bool.self, forKey: .autoStartup) ?? false
+        self.groups = try container.decodeIfPresent([String].self, forKey: .groups) ?? []
     }
-    
-    // 自定义编码
-    init(providers: [APIProvider], currentProvider: APIProvider?, autoUpdate: Bool, proxyHost: String, proxyPort: String, autoStartup: Bool) {
+
+    init(providers: [APIProvider], currentProvider: APIProvider?, autoUpdate: Bool, proxyHost: String, proxyPort: String, autoStartup: Bool, groups: [String] = []) {
         self.providers = providers
         self.currentProvider = currentProvider
         self.autoUpdate = autoUpdate
         self.proxyHost = proxyHost
         self.proxyPort = proxyPort
         self.autoStartup = autoStartup
+        self.groups = groups
     }
 }
 
 class ConfigManager: ObservableObject {
     static let shared = ConfigManager()
-    
+
     @Published var providers: [APIProvider] = []
     @Published var currentProvider: APIProvider?
     @Published var autoUpdate: Bool = true
     @Published var proxyHost: String = ""
     @Published var proxyPort: String = ""
     @Published var autoStartup: Bool = false
+    @Published var groups: [String] = []
     
     private let userDefaults = UserDefaults.standard
     private let claudeConfigPath: URL
@@ -131,13 +133,71 @@ class ConfigManager: ObservableObject {
             url: provider.url,
             key: provider.key,
             largeModel: provider.largeModel,
-            smallModel: provider.smallModel
+            smallModel: provider.smallModel,
+            groupName: provider.groupName
         )
-        // 重新赋值以确保 @Published 触发变更
         providers = providers + [copiedProvider]
         saveConfiguration()
         syncToClaudeConfig()
         postConfigChangeNotification()
+    }
+
+    // MARK: - Group Management
+
+    func addGroup(_ name: String) {
+        guard !name.isEmpty, !groups.contains(name) else { return }
+        objectWillChange.send()
+        groups = groups + [name]
+        saveConfiguration()
+    }
+
+    func removeGroup(_ name: String) {
+        objectWillChange.send()
+        groups = groups.filter { $0 != name }
+        providers = providers.map { provider in
+            if provider.groupName == name {
+                var updated = provider
+                updated.groupName = nil
+                return updated
+            }
+            return provider
+        }
+        saveConfiguration()
+        postConfigChangeNotification()
+    }
+
+    func renameGroup(from oldName: String, to newName: String) {
+        guard !newName.isEmpty, oldName != newName else { return }
+        objectWillChange.send()
+        groups = groups.map { $0 == oldName ? newName : $0 }
+        providers = providers.map { provider in
+            if provider.groupName == oldName {
+                var updated = provider
+                updated.groupName = newName
+                return updated
+            }
+            return provider
+        }
+        saveConfiguration()
+        postConfigChangeNotification()
+    }
+
+    func providersGrouped() -> [(group: String?, providers: [APIProvider])] {
+        var result: [(group: String?, providers: [APIProvider])] = []
+
+        for group in groups {
+            let groupProviders = providers.filter { $0.groupName == group }
+            if !groupProviders.isEmpty {
+                result.append((group: group, providers: groupProviders))
+            }
+        }
+
+        let ungrouped = providers.filter { $0.groupName == nil || $0.groupName?.isEmpty == true }
+        if !ungrouped.isEmpty {
+            result.append((group: nil, providers: ungrouped))
+        }
+
+        return result
     }
     
     func updateGlobalSettings(autoUpdate: Bool, proxyHost: String, proxyPort: String, autoStartup: Bool) {
@@ -262,29 +322,22 @@ class ConfigManager: ObservableObject {
     }
     
     private func loadConfiguration() {
-        // 首先尝试从文件加载配置
         if let config = try? loadConfigFromFile() {
-            print("=== 从文件加载到配置，提供商数量: \(config.providers.count) ===")
-            print("=== 更新前 providers 数量: \(self.providers.count) ===")
             self.providers = config.providers
             self.currentProvider = config.currentProvider
             self.autoUpdate = config.autoUpdate
             self.proxyHost = config.proxyHost
             self.proxyPort = config.proxyPort
             self.autoStartup = config.autoStartup
-            print("=== 更新后 providers 数量: \(self.providers.count) ===")
-            print("从配置文件加载配置成功")
-            // 初始加载后发送通知
+            self.groups = config.groups
             DispatchQueue.main.async {
                 self.postConfigChangeNotification()
             }
             return
         }
-        
-        // 如果文件不存在，尝试从 UserDefaults 迁移
+
         do {
             try migrateFromUserDefaults()
-            // 迁移后重新加载
             if let config = try? loadConfigFromFile() {
                 self.providers = config.providers
                 self.currentProvider = config.currentProvider
@@ -292,37 +345,31 @@ class ConfigManager: ObservableObject {
                 self.proxyHost = config.proxyHost
                 self.proxyPort = config.proxyPort
                 self.autoStartup = config.autoStartup
-                print("从 UserDefaults 迁移配置成功")
-                // 迁移后发送通知
+                self.groups = config.groups
                 DispatchQueue.main.async {
                     self.postConfigChangeNotification()
                 }
             }
         } catch {
-            print("迁移配置失败，使用默认配置: \(error)")
-            // 使用默认配置
             self.providers = []
             self.currentProvider = nil
             self.autoUpdate = true
             self.proxyHost = ""
             self.proxyPort = ""
             self.autoStartup = false
+            self.groups = []
         }
     }
     
     private func saveConfiguration() {
-        print("开始保存配置...")
-        print("提供商数量: \(providers.count)")
-        print("提供商列表: \(providers.map { "\($0.name) (ID: \($0.id))" })")
-        
-        // 创建配置对象
         let config = AppConfig(
             providers: providers,
             currentProvider: currentProvider,
             autoUpdate: autoUpdate,
             proxyHost: proxyHost,
             proxyPort: proxyPort,
-            autoStartup: autoStartup
+            autoStartup: autoStartup,
+            groups: groups
         )
         
         // 保存到文件
