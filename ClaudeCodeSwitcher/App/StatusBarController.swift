@@ -154,7 +154,7 @@ class StatusBarController: NSObject {
         
         // 添加 API 提供商列表
         let providers = configManager.getProviders()
-        
+
         if providers.isEmpty {
             let noProvidersItem = NSMenuItem(title: "⚠️ 暂无配置的提供商", action: nil, keyEquivalent: "")
             noProvidersItem.isEnabled = false
@@ -173,47 +173,57 @@ class StatusBarController: NSObject {
             ]
             switchHeaderItem.attributedTitle = NSAttributedString(string: "切换到", attributes: headerAttributes)
             menu.addItem(switchHeaderItem)
-            
-            for provider in providers {
-                var title = provider.name
-                var attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 13)]
-                
-                // 标记当前选中的提供商
-                if provider.id == currentProvider?.id {
-                    title = "  ● " + title
-                    attributes[.foregroundColor] = NSColor.systemBlue
-                    
-                    if let balanceInline = balanceStatus.inlineText(for: provider) {
-                        title += " · \(balanceInline)"
+
+            let groupedData = configManager.providersGrouped()
+
+            for item in groupedData {
+                if let group = item.group {
+                    let groupItem = NSMenuItem(title: group.name, action: nil, keyEquivalent: "")
+                    groupItem.isEnabled = false
+                    let groupAttributes: [NSAttributedString.Key: Any] = [
+                        .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+                        .foregroundColor: NSColor.tertiaryLabelColor
+                    ]
+                    groupItem.attributedTitle = NSAttributedString(string: "  ▸ \(group.name)", attributes: groupAttributes)
+                    menu.addItem(groupItem)
+                }
+
+                for provider in item.providers {
+                    let indent = item.group == nil ? "  " : "      "
+                    var title = provider.name
+                    var attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 13)]
+
+                    if provider.id == currentProvider?.id {
+                        title = indent + "● " + title
+                        attributes[.foregroundColor] = NSColor.systemBlue
+
+                        if let balanceInline = balanceStatus.inlineText(for: provider) {
+                            title += " · \(balanceInline)"
+                        }
+                    } else if provider.isValid {
+                        title = indent + "○ " + title
+                        attributes[.foregroundColor] = NSColor.labelColor
+                    } else {
+                        title = indent + "⚠ " + title + " (未配置)"
+                        attributes[.foregroundColor] = NSColor.tertiaryLabelColor
                     }
-                } else if provider.isValid {
-                    title = "  ○ " + title
-                    attributes[.foregroundColor] = NSColor.labelColor
-                } else {
-                    title = "  ⚠ " + title + " (未配置)"
-                    attributes[.foregroundColor] = NSColor.tertiaryLabelColor
+
+                    let menuItem = NSMenuItem(title: title, action: #selector(selectProvider(_:)), keyEquivalent: "")
+                    menuItem.target = self
+                    menuItem.representedObject = provider
+                    menuItem.attributedTitle = NSAttributedString(string: title, attributes: attributes)
+
+                    if !provider.isValid {
+                        menuItem.toolTip = "需要配置 API 密钥"
+                        menuItem.isEnabled = false
+                    } else if provider.id == currentProvider?.id {
+                        menuItem.toolTip = "当前使用的配置"
+                    } else {
+                        menuItem.toolTip = "点击切换到此配置"
+                    }
+
+                    menu.addItem(menuItem)
                 }
-                
-                let item = NSMenuItem(title: title, action: #selector(selectProvider(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = provider
-                item.attributedTitle = NSAttributedString(string: title, attributes: attributes)
-                
-                // 添加工具提示
-                if !provider.isValid {
-                    item.toolTip = "需要配置 API 密钥"
-                } else if provider.id == currentProvider?.id {
-                    item.toolTip = "当前使用的配置"
-                } else {
-                    item.toolTip = "点击切换到此配置"
-                }
-                
-                // 检查 API 密钥是否配置
-                if !provider.isValid {
-                    item.isEnabled = false
-                }
-                
-                menu.addItem(item)
             }
         }
         

@@ -38,7 +38,7 @@ struct SettingsView: View {
                 AvailableConfigsCard(
                     providers: configManager.providers,
                     currentProvider: configManager.currentProvider,
-                    groups: configManager.groups,
+                    providerGroups: configManager.providerGroups,
                     onEdit: { provider in
                         editingProvider = provider
                     },
@@ -59,6 +59,9 @@ struct SettingsView: View {
                     },
                     onDeleteGroup: { name in
                         configManager.removeGroup(name)
+                    },
+                    onUpdateGroup: { group in
+                        configManager.updateGroup(group)
                     },
                     onMoveToGroup: { provider, groupName in
                         var updated = provider
@@ -566,7 +569,7 @@ struct CurrentConfigCard: View {
 struct AvailableConfigsCard: View {
     let providers: [APIProvider]
     let currentProvider: APIProvider?
-    let groups: [String]
+    let providerGroups: [ProviderGroup]
     let onEdit: (APIProvider) -> Void
     let onDelete: (APIProvider) -> Void
     let onCopy: (APIProvider) -> Void
@@ -574,22 +577,29 @@ struct AvailableConfigsCard: View {
     let onAddProvider: () -> Void
     let onAddGroup: (String) -> Void
     let onDeleteGroup: (String) -> Void
+    let onUpdateGroup: (ProviderGroup) -> Void
     let onMoveToGroup: (APIProvider, String?) -> Void
 
     @State private var showingAddGroup = false
     @State private var newGroupName = ""
     @State private var collapsedGroups: Set<String> = []
+    @State private var editingGroup: ProviderGroup?
 
-    private func groupedProviders() -> [(group: String?, providers: [APIProvider])] {
-        var result: [(group: String?, providers: [APIProvider])] = []
+    private var groups: [String] {
+        providerGroups.sorted { $0.priority < $1.priority }.map { $0.name }
+    }
 
-        for group in groups {
-            let groupProviders = providers.filter { $0.groupName == group }
+    private func groupedProviders() -> [(group: ProviderGroup?, providers: [APIProvider])] {
+        var result: [(group: ProviderGroup?, providers: [APIProvider])] = []
+
+        let sortedGroups = providerGroups.sorted { $0.priority < $1.priority }
+        for group in sortedGroups {
+            let groupProviders = providers.filter { $0.groupName == group.name }.sorted { $0.priority < $1.priority }
             result.append((group: group, providers: groupProviders))
         }
 
-        let ungrouped = providers.filter { $0.groupName == nil || $0.groupName?.isEmpty == true }
-        if !ungrouped.isEmpty || groups.isEmpty {
+        let ungrouped = providers.filter { $0.groupName == nil || $0.groupName?.isEmpty == true }.sorted { $0.priority < $1.priority }
+        if !ungrouped.isEmpty || sortedGroups.isEmpty {
             result.append((group: nil, providers: ungrouped))
         }
 
@@ -633,15 +643,15 @@ struct AvailableConfigsCard: View {
                     }
                 } else {
                     VStack(spacing: 10) {
-                        ForEach(groupedProviders(), id: \.group) { item in
+                        ForEach(groupedProviders(), id: \.group?.id) { item in
                             GroupSection(
-                                groupName: item.group,
+                                group: item.group,
                                 providers: item.providers,
                                 currentProvider: currentProvider,
                                 groups: groups,
-                                isCollapsed: collapsedGroups.contains(item.group ?? ""),
+                                isCollapsed: collapsedGroups.contains(item.group?.name ?? ""),
                                 onToggle: {
-                                    let key = item.group ?? ""
+                                    let key = item.group?.name ?? ""
                                     if collapsedGroups.contains(key) {
                                         collapsedGroups.remove(key)
                                     } else {
@@ -653,7 +663,10 @@ struct AvailableConfigsCard: View {
                                 onCopy: onCopy,
                                 onSelect: onSelect,
                                 onMoveToGroup: onMoveToGroup,
-                                onDeleteGroup: item.group != nil ? { onDeleteGroup(item.group!) } : nil
+                                onEditGroup: { group in
+                                    editingGroup = group
+                                },
+                                onDeleteGroup: item.group != nil ? { onDeleteGroup(item.group!.name) } : nil
                             )
                         }
                     }
@@ -676,12 +689,20 @@ struct AvailableConfigsCard: View {
                 }
             )
         }
+        .sheet(item: $editingGroup) { group in
+            EditGroupSheet(group: group, onSave: { updated in
+                onUpdateGroup(updated)
+                editingGroup = nil
+            }, onCancel: {
+                editingGroup = nil
+            })
+        }
     }
 }
 
 // MARK: - 分组区块
 struct GroupSection: View {
-    let groupName: String?
+    let group: ProviderGroup?
     let providers: [APIProvider]
     let currentProvider: APIProvider?
     let groups: [String]
@@ -692,6 +713,7 @@ struct GroupSection: View {
     let onCopy: (APIProvider) -> Void
     let onSelect: (APIProvider) -> Void
     let onMoveToGroup: (APIProvider, String?) -> Void
+    let onEditGroup: ((ProviderGroup) -> Void)?
     let onDeleteGroup: (() -> Void)?
 
     var body: some View {
@@ -703,13 +725,16 @@ struct GroupSection: View {
                         .foregroundColor(.secondary)
                         .frame(width: 12)
 
-                    if let name = groupName {
+                    if let g = group {
                         Image(systemName: "folder.fill")
                             .font(.caption)
                             .foregroundColor(.orange)
-                        Text(name)
+                        Text(g.name)
                             .font(.caption)
                             .fontWeight(.medium)
+                        Text("#\(g.priority)")
+                            .font(.caption2)
+                            .foregroundColor(Color(NSColor.tertiaryLabelColor))
                     } else {
                         Image(systemName: "tray")
                             .font(.caption)
@@ -724,6 +749,16 @@ struct GroupSection: View {
                         .foregroundColor(.secondary)
 
                     Spacer()
+
+                    if let g = group, let onEditGroup = onEditGroup {
+                        Button(action: { onEditGroup(g) }) {
+                            Image(systemName: "pencil")
+                                .font(.caption2)
+                                .foregroundColor(.blue.opacity(0.7))
+                        }
+                        .buttonStyle(.plain)
+                        .help("编辑分组")
+                    }
 
                     if let onDeleteGroup = onDeleteGroup {
                         Button(action: onDeleteGroup) {
@@ -784,6 +819,62 @@ struct AddGroupSheet: View {
         }
         .padding(20)
         .frame(width: 280)
+    }
+}
+
+// MARK: - 编辑分组弹窗
+struct EditGroupSheet: View {
+    @State private var name: String
+    @State private var priority: Int
+    let group: ProviderGroup
+    let onSave: (ProviderGroup) -> Void
+    let onCancel: () -> Void
+
+    init(group: ProviderGroup, onSave: @escaping (ProviderGroup) -> Void, onCancel: @escaping () -> Void) {
+        self.group = group
+        self.onSave = onSave
+        self.onCancel = onCancel
+        self._name = State(initialValue: group.name)
+        self._priority = State(initialValue: group.priority)
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("编辑分组")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("分组名称")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("分组名称", text: $name)
+                    .textFieldStyle(ModernTextFieldStyle())
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("优先级（数字越小越靠前）")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("优先级", value: $priority, format: .number)
+                    .textFieldStyle(ModernTextFieldStyle())
+            }
+
+            HStack(spacing: 12) {
+                Button("取消", action: onCancel)
+                    .buttonStyle(SecondaryButtonStyle())
+
+                Button("保存") {
+                    var updated = group
+                    updated.name = name
+                    updated.priority = priority
+                    onSave(updated)
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(name.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 300)
     }
 }
 
@@ -1109,6 +1200,7 @@ struct AddProviderView: View {
     @State private var largeModel: String = ""
     @State private var smallModel: String = ""
     @State private var selectedGroup: String = ""
+    @State private var priority: Int = 0
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var configManager = ConfigManager.shared
 
@@ -1127,19 +1219,30 @@ struct AddProviderView: View {
                 FormField(label: "大模型（可选）", placeholder: "claude-3-opus-20240229", text: $largeModel)
                 FormField(label: "小模型（可选）", placeholder: "claude-3-haiku-20240307", text: $smallModel)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("分组（可选）")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("分组（可选）")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
 
-                    Picker("", selection: $selectedGroup) {
-                        Text("未分组").tag("")
-                        ForEach(configManager.groups, id: \.self) { group in
-                            Text(group).tag(group)
+                        Picker("", selection: $selectedGroup) {
+                            Text("未分组").tag("")
+                            ForEach(configManager.groups, id: \.self) { group in
+                                Text(group).tag(group)
+                            }
                         }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("优先级")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        TextField("0", value: $priority, format: .number)
+                            .textFieldStyle(ModernTextFieldStyle())
+                            .frame(width: 60)
+                    }
                 }
             }
 
@@ -1156,7 +1259,8 @@ struct AddProviderView: View {
                         key: key,
                         largeModel: largeModel.isEmpty ? nil : largeModel,
                         smallModel: smallModel.isEmpty ? nil : smallModel,
-                        groupName: selectedGroup.isEmpty ? nil : selectedGroup
+                        groupName: selectedGroup.isEmpty ? nil : selectedGroup,
+                        priority: priority
                     )
                     onAdd(provider)
                     dismiss()
@@ -1166,7 +1270,7 @@ struct AddProviderView: View {
             }
         }
         .padding(20)
-        .frame(width: 400, height: 480)
+        .frame(width: 400, height: 520)
         .background(Color(.windowBackgroundColor))
     }
 }
@@ -1178,6 +1282,7 @@ struct EditProviderView: View {
     @State private var largeModel: String
     @State private var smallModel: String
     @State private var selectedGroup: String
+    @State private var priority: Int
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var configManager = ConfigManager.shared
 
@@ -1193,6 +1298,7 @@ struct EditProviderView: View {
         self._largeModel = State(initialValue: provider.largeModel ?? "")
         self._smallModel = State(initialValue: provider.smallModel ?? "")
         self._selectedGroup = State(initialValue: provider.groupName ?? "")
+        self._priority = State(initialValue: provider.priority)
     }
 
     var body: some View {
@@ -1208,19 +1314,30 @@ struct EditProviderView: View {
                 FormField(label: "大模型（可选）", placeholder: "claude-3-opus-20240229", text: $largeModel)
                 FormField(label: "小模型（可选）", placeholder: "claude-3-haiku-20240307", text: $smallModel)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("分组（可选）")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("分组（可选）")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
 
-                    Picker("", selection: $selectedGroup) {
-                        Text("未分组").tag("")
-                        ForEach(configManager.groups, id: \.self) { group in
-                            Text(group).tag(group)
+                        Picker("", selection: $selectedGroup) {
+                            Text("未分组").tag("")
+                            ForEach(configManager.groups, id: \.self) { group in
+                                Text(group).tag(group)
+                            }
                         }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("优先级")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        TextField("0", value: $priority, format: .number)
+                            .textFieldStyle(ModernTextFieldStyle())
+                            .frame(width: 60)
+                    }
                 }
             }
 
@@ -1238,6 +1355,7 @@ struct EditProviderView: View {
                     updatedProvider.largeModel = largeModel.isEmpty ? nil : largeModel
                     updatedProvider.smallModel = smallModel.isEmpty ? nil : smallModel
                     updatedProvider.groupName = selectedGroup.isEmpty ? nil : selectedGroup
+                    updatedProvider.priority = priority
                     onUpdate(updatedProvider)
                     dismiss()
                 }
@@ -1246,7 +1364,7 @@ struct EditProviderView: View {
             }
         }
         .padding(20)
-        .frame(width: 400, height: 480)
+        .frame(width: 400, height: 520)
         .background(Color(.windowBackgroundColor))
     }
 }

@@ -8,12 +8,13 @@ struct APIProvider: Codable, Identifiable, Equatable {
     var largeModel: String?
     var smallModel: String?
     var groupName: String?
+    var priority: Int
 
     enum CodingKeys: String, CodingKey {
-        case id, name, url, key, largeModel, smallModel, groupName
+        case id, name, url, key, largeModel, smallModel, groupName, priority
     }
 
-    init(id: UUID = UUID(), name: String, url: String, key: String, largeModel: String? = nil, smallModel: String? = nil, groupName: String? = nil) {
+    init(id: UUID = UUID(), name: String, url: String, key: String, largeModel: String? = nil, smallModel: String? = nil, groupName: String? = nil, priority: Int = 0) {
         self.id = id
         self.name = name
         self.url = url
@@ -21,6 +22,7 @@ struct APIProvider: Codable, Identifiable, Equatable {
         self.largeModel = largeModel
         self.smallModel = smallModel
         self.groupName = groupName
+        self.priority = priority
     }
 
     init(from decoder: Decoder) throws {
@@ -33,11 +35,32 @@ struct APIProvider: Codable, Identifiable, Equatable {
         self.largeModel = try container.decodeIfPresent(String.self, forKey: .largeModel)
         self.smallModel = try container.decodeIfPresent(String.self, forKey: .smallModel)
         self.groupName = try container.decodeIfPresent(String.self, forKey: .groupName)
+        self.priority = try container.decodeIfPresent(Int.self, forKey: .priority) ?? 0
     }
     
     // 验证 API 密钥是否配置
     var isValid: Bool {
         return !name.isEmpty && !url.isEmpty && !key.isEmpty
+    }
+}
+
+// MARK: - 分组模型
+struct ProviderGroup: Codable, Identifiable, Equatable {
+    let id: UUID
+    var name: String
+    var priority: Int
+
+    init(id: UUID = UUID(), name: String, priority: Int = 0) {
+        self.id = id
+        self.name = name
+        self.priority = priority
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        self.name = try container.decode(String.self, forKey: .name)
+        self.priority = try container.decodeIfPresent(Int.self, forKey: .priority) ?? 0
     }
 }
 

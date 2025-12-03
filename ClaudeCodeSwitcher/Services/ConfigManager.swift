@@ -10,10 +10,10 @@ struct AppConfig: Codable {
     let proxyHost: String
     let proxyPort: String
     let autoStartup: Bool
-    let groups: [String]
+    let providerGroups: [ProviderGroup]
 
     enum CodingKeys: String, CodingKey {
-        case providers, currentProvider, autoUpdate, proxyHost, proxyPort, autoStartup, groups
+        case providers, currentProvider, autoUpdate, proxyHost, proxyPort, autoStartup, groups, providerGroups
     }
 
     init(from decoder: Decoder) throws {
@@ -25,17 +25,34 @@ struct AppConfig: Codable {
         self.proxyHost = try container.decodeIfPresent(String.self, forKey: .proxyHost) ?? ""
         self.proxyPort = try container.decodeIfPresent(String.self, forKey: .proxyPort) ?? ""
         self.autoStartup = try container.decodeIfPresent(Bool.self, forKey: .autoStartup) ?? false
-        self.groups = try container.decodeIfPresent([String].self, forKey: .groups) ?? []
+        if let groups = try container.decodeIfPresent([ProviderGroup].self, forKey: .providerGroups) {
+            self.providerGroups = groups
+        } else if let oldGroups = try container.decodeIfPresent([String].self, forKey: .groups) {
+            self.providerGroups = oldGroups.enumerated().map { ProviderGroup(name: $1, priority: $0) }
+        } else {
+            self.providerGroups = []
+        }
     }
 
-    init(providers: [APIProvider], currentProvider: APIProvider?, autoUpdate: Bool, proxyHost: String, proxyPort: String, autoStartup: Bool, groups: [String] = []) {
+    init(providers: [APIProvider], currentProvider: APIProvider?, autoUpdate: Bool, proxyHost: String, proxyPort: String, autoStartup: Bool, providerGroups: [ProviderGroup] = []) {
         self.providers = providers
         self.currentProvider = currentProvider
         self.autoUpdate = autoUpdate
         self.proxyHost = proxyHost
         self.proxyPort = proxyPort
         self.autoStartup = autoStartup
-        self.groups = groups
+        self.providerGroups = providerGroups
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(providers, forKey: .providers)
+        try container.encodeIfPresent(currentProvider, forKey: .currentProvider)
+        try container.encode(autoUpdate, forKey: .autoUpdate)
+        try container.encode(proxyHost, forKey: .proxyHost)
+        try container.encode(proxyPort, forKey: .proxyPort)
+        try container.encode(autoStartup, forKey: .autoStartup)
+        try container.encode(providerGroups, forKey: .providerGroups)
     }
 }
 
@@ -48,7 +65,11 @@ class ConfigManager: ObservableObject {
     @Published var proxyHost: String = ""
     @Published var proxyPort: String = ""
     @Published var autoStartup: Bool = false
-    @Published var groups: [String] = []
+    @Published var providerGroups: [ProviderGroup] = []
+
+    var groups: [String] {
+        providerGroups.sorted { $0.priority < $1.priority }.map { $0.name }
+    }
     
     private let userDefaults = UserDefaults.standard
     private let claudeConfigPath: URL
@@ -145,15 +166,16 @@ class ConfigManager: ObservableObject {
     // MARK: - Group Management
 
     func addGroup(_ name: String) {
-        guard !name.isEmpty, !groups.contains(name) else { return }
+        guard !name.isEmpty, !providerGroups.contains(where: { $0.name == name }) else { return }
         objectWillChange.send()
-        groups = groups + [name]
+        let maxPriority = providerGroups.map { $0.priority }.max() ?? -1
+        providerGroups = providerGroups + [ProviderGroup(name: name, priority: maxPriority + 1)]
         saveConfiguration()
     }
 
     func removeGroup(_ name: String) {
         objectWillChange.send()
-        groups = groups.filter { $0 != name }
+        providerGroups = providerGroups.filter { $0.name != name }
         providers = providers.map { provider in
             if provider.groupName == name {
                 var updated = provider
@@ -166,34 +188,39 @@ class ConfigManager: ObservableObject {
         postConfigChangeNotification()
     }
 
-    func renameGroup(from oldName: String, to newName: String) {
-        guard !newName.isEmpty, oldName != newName else { return }
+    func updateGroup(_ group: ProviderGroup) {
         objectWillChange.send()
-        groups = groups.map { $0 == oldName ? newName : $0 }
-        providers = providers.map { provider in
-            if provider.groupName == oldName {
-                var updated = provider
-                updated.groupName = newName
-                return updated
+        let oldName = providerGroups.first { $0.id == group.id }?.name
+        providerGroups = providerGroups.map { $0.id == group.id ? group : $0 }
+        if let oldName = oldName, oldName != group.name {
+            providers = providers.map { provider in
+                if provider.groupName == oldName {
+                    var updated = provider
+                    updated.groupName = group.name
+                    return updated
+                }
+                return provider
             }
-            return provider
         }
         saveConfiguration()
         postConfigChangeNotification()
     }
 
-    func providersGrouped() -> [(group: String?, providers: [APIProvider])] {
-        var result: [(group: String?, providers: [APIProvider])] = []
+    func getGroup(byName name: String) -> ProviderGroup? {
+        providerGroups.first { $0.name == name }
+    }
 
-        for group in groups {
-            let groupProviders = providers.filter { $0.groupName == group }
-            if !groupProviders.isEmpty {
-                result.append((group: group, providers: groupProviders))
-            }
+    func providersGrouped() -> [(group: ProviderGroup?, providers: [APIProvider])] {
+        var result: [(group: ProviderGroup?, providers: [APIProvider])] = []
+
+        let sortedGroups = providerGroups.sorted { $0.priority < $1.priority }
+        for group in sortedGroups {
+            let groupProviders = providers.filter { $0.groupName == group.name }.sorted { $0.priority < $1.priority }
+            result.append((group: group, providers: groupProviders))
         }
 
-        let ungrouped = providers.filter { $0.groupName == nil || $0.groupName?.isEmpty == true }
-        if !ungrouped.isEmpty {
+        let ungrouped = providers.filter { $0.groupName == nil || $0.groupName?.isEmpty == true }.sorted { $0.priority < $1.priority }
+        if !ungrouped.isEmpty || sortedGroups.isEmpty {
             result.append((group: nil, providers: ungrouped))
         }
 
@@ -329,7 +356,7 @@ class ConfigManager: ObservableObject {
             self.proxyHost = config.proxyHost
             self.proxyPort = config.proxyPort
             self.autoStartup = config.autoStartup
-            self.groups = config.groups
+            self.providerGroups = config.providerGroups
             DispatchQueue.main.async {
                 self.postConfigChangeNotification()
             }
@@ -345,7 +372,7 @@ class ConfigManager: ObservableObject {
                 self.proxyHost = config.proxyHost
                 self.proxyPort = config.proxyPort
                 self.autoStartup = config.autoStartup
-                self.groups = config.groups
+                self.providerGroups = config.providerGroups
                 DispatchQueue.main.async {
                     self.postConfigChangeNotification()
                 }
@@ -357,7 +384,7 @@ class ConfigManager: ObservableObject {
             self.proxyHost = ""
             self.proxyPort = ""
             self.autoStartup = false
-            self.groups = []
+            self.providerGroups = []
         }
     }
     
@@ -369,7 +396,7 @@ class ConfigManager: ObservableObject {
             proxyHost: proxyHost,
             proxyPort: proxyPort,
             autoStartup: autoStartup,
-            groups: groups
+            providerGroups: providerGroups
         )
         
         // 保存到文件
