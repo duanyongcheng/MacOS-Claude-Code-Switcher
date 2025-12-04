@@ -2,7 +2,7 @@ import Cocoa
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController!
-    
+
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         print("applicationDidFinishLaunching 被调用")
         setupApplication()
@@ -11,10 +11,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("setupMenuBar 完成")
         statusBarController = StatusBarController()
         print("statusBarController 创建完成")
+
+        if ConfigManager.shared.proxyModeEnabled {
+            LocalProxyService.shared.start()
+        }
     }
     
     func applicationWillTerminate(_ aNotification: Notification) {
-        // 清理资源
+        LocalProxyService.shared.stop()
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

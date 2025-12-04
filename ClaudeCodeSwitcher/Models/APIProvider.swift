@@ -46,14 +46,23 @@ struct APIProvider: Codable, Identifiable, Equatable {
 
 // MARK: - 分组模型
 struct ProviderGroup: Codable, Identifiable, Equatable {
+    static let proxyGroupName = "🔀 代理池"
+    static let proxyGroupID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+
     let id: UUID
     var name: String
     var priority: Int
+    var isBuiltin: Bool
 
-    init(id: UUID = UUID(), name: String, priority: Int = 0) {
+    var isProxyGroup: Bool {
+        id == Self.proxyGroupID
+    }
+
+    init(id: UUID = UUID(), name: String, priority: Int = 0, isBuiltin: Bool = false) {
         self.id = id
         self.name = name
         self.priority = priority
+        self.isBuiltin = isBuiltin
     }
 
     init(from decoder: Decoder) throws {
@@ -61,6 +70,11 @@ struct ProviderGroup: Codable, Identifiable, Equatable {
         self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         self.name = try container.decode(String.self, forKey: .name)
         self.priority = try container.decodeIfPresent(Int.self, forKey: .priority) ?? 0
+        self.isBuiltin = try container.decodeIfPresent(Bool.self, forKey: .isBuiltin) ?? false
+    }
+
+    static func createProxyGroup() -> ProviderGroup {
+        ProviderGroup(id: proxyGroupID, name: proxyGroupName, priority: -1000, isBuiltin: true)
     }
 }
 

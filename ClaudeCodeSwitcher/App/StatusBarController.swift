@@ -102,10 +102,35 @@ class StatusBarController: NSObject {
         titleItem.attributedTitle = NSAttributedString(string: "Claude Code Switcher", attributes: titleAttributes)
         menu.addItem(titleItem)
         menu.addItem(NSMenuItem.separator())
-        
+
+        // 代理模式状态
+        if configManager.proxyModeEnabled {
+            let proxyStatusItem = NSMenuItem(title: "", action: #selector(toggleProxyMode), keyEquivalent: "")
+            proxyStatusItem.target = self
+            let poolCount = configManager.getProxyPoolProviders().count
+            let statusText = "🔀 代理池模式 · \(poolCount) 个节点"
+            let proxyAttributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+                .foregroundColor: NSColor.systemGreen
+            ]
+            proxyStatusItem.attributedTitle = NSAttributedString(string: statusText, attributes: proxyAttributes)
+            proxyStatusItem.toolTip = "点击关闭代理池模式\n本地端口: \(configManager.proxyModePort)"
+            menu.addItem(proxyStatusItem)
+
+            let addressItem = NSMenuItem(title: "地址: http://127.0.0.1:\(configManager.proxyModePort)", action: nil, keyEquivalent: "")
+            addressItem.isEnabled = false
+            let addressAttributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ]
+            addressItem.attributedTitle = NSAttributedString(string: "地址: http://127.0.0.1:\(configManager.proxyModePort)", attributes: addressAttributes)
+            menu.addItem(addressItem)
+            menu.addItem(NSMenuItem.separator())
+        }
+
         // 添加当前提供商信息
         let currentProvider = configManager.currentProvider
-        if let current = currentProvider {
+        if let current = currentProvider, !configManager.proxyModeEnabled {
             let currentHeaderItem = NSMenuItem(title: "当前配置", action: nil, keyEquivalent: "")
             currentHeaderItem.isEnabled = false
             let headerAttributes: [NSAttributedString.Key: Any] = [
@@ -382,7 +407,17 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
     private func saveCollapsedGroups() {
         UserDefaults.standard.set(Array(collapsedGroups), forKey: "collapsedGroups")
     }
-    
+
+    @objc private func toggleProxyMode() {
+        let newState = !configManager.proxyModeEnabled
+        configManager.setProxyModeEnabled(newState)
+        rebuildMenu()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.statusItem.button?.performClick(nil)
+        }
+    }
+
     @objc private func balanceDidUpdate(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
               let providerIdStr = userInfo["providerId"] as? String,

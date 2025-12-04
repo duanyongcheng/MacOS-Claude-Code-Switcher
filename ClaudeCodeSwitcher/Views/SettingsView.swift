@@ -663,10 +663,10 @@ struct AvailableConfigsCard: View {
                                 onCopy: onCopy,
                                 onSelect: onSelect,
                                 onMoveToGroup: onMoveToGroup,
-                                onEditGroup: { group in
+                                onEditGroup: item.group?.isBuiltin == true ? nil : { group in
                                     editingGroup = group
                                 },
-                                onDeleteGroup: item.group != nil ? { onDeleteGroup(item.group!.name) } : nil
+                                onDeleteGroup: (item.group != nil && item.group?.isBuiltin != true) ? { onDeleteGroup(item.group!.name) } : nil
                             )
                         }
                     }
@@ -992,6 +992,7 @@ struct ProxySettingsCard: View {
     let onRefresh: () -> Void
     @ObservedObject private var configManager = ConfigManager.shared
     @State private var launchAgentStatus: Bool = false
+    @State private var proxyModePort: String = ""
 
     var body: some View {
         CardView {
@@ -1018,7 +1019,80 @@ struct ProxySettingsCard: View {
 
                 Divider()
 
-                Text("代理设置")
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text("代理池模式")
+                                .font(.subheadline)
+                            if configManager.proxyModeEnabled {
+                                Text("运行中")
+                                    .font(.caption2)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.green.opacity(0.2))
+                                    .foregroundColor(.green)
+                                    .cornerRadius(4)
+                            }
+                        }
+
+                        Text("开启后 Claude 请求将通过本地代理池转发，支持故障自动切换")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    Toggle("", isOn: Binding(
+                        get: { configManager.proxyModeEnabled },
+                        set: { configManager.setProxyModeEnabled($0) }
+                    ))
+                    .toggleStyle(SwitchToggleStyle())
+                    .labelsHidden()
+                }
+
+                if configManager.proxyModeEnabled {
+                    HStack(spacing: 12) {
+                        Text("本地端口")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        TextField("32000", text: $proxyModePort)
+                            .textFieldStyle(ModernTextFieldStyle())
+                            .frame(width: 80)
+                            .onSubmit {
+                                if let port = Int(proxyModePort), port > 0 && port < 65536 {
+                                    configManager.setProxyModePort(port)
+                                    LocalProxyService.shared.restart()
+                                }
+                            }
+
+                        Text("http://127.0.0.1:\(String(configManager.proxyModePort))")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        Spacer()
+                    }
+
+                    let poolCount = configManager.getProxyPoolProviders().count
+                    if poolCount == 0 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                                .font(.caption)
+                            Text("请在「\(ProviderGroup.proxyGroupName)」分组中添加 Provider")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
+                    } else {
+                        Text("代理池中有 \(poolCount) 个可用 Provider")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Divider()
+
+                Text("网络代理")
                     .font(.subheadline)
                     .fontWeight(.medium)
 
@@ -1049,11 +1123,15 @@ struct ProxySettingsCard: View {
         }
         .onAppear {
             launchAgentStatus = configManager.checkLaunchAgentStatus()
+            proxyModePort = String(configManager.proxyModePort)
         }
         .onChange(of: autoStartup) { _ in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 launchAgentStatus = configManager.checkLaunchAgentStatus()
             }
+        }
+        .onChange(of: configManager.proxyModePort) { newValue in
+            proxyModePort = String(newValue)
         }
     }
 }

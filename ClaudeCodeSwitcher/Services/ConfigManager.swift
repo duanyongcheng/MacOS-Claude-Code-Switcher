@@ -11,9 +11,12 @@ struct AppConfig: Codable {
     let proxyPort: String
     let autoStartup: Bool
     let providerGroups: [ProviderGroup]
+    let proxyModeEnabled: Bool
+    let proxyModePort: Int
 
     enum CodingKeys: String, CodingKey {
         case providers, currentProvider, autoUpdate, proxyHost, proxyPort, autoStartup, groups, providerGroups
+        case proxyModeEnabled, proxyModePort
     }
 
     init(from decoder: Decoder) throws {
@@ -32,9 +35,11 @@ struct AppConfig: Codable {
         } else {
             self.providerGroups = []
         }
+        self.proxyModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .proxyModeEnabled) ?? false
+        self.proxyModePort = try container.decodeIfPresent(Int.self, forKey: .proxyModePort) ?? 32000
     }
 
-    init(providers: [APIProvider], currentProvider: APIProvider?, autoUpdate: Bool, proxyHost: String, proxyPort: String, autoStartup: Bool, providerGroups: [ProviderGroup] = []) {
+    init(providers: [APIProvider], currentProvider: APIProvider?, autoUpdate: Bool, proxyHost: String, proxyPort: String, autoStartup: Bool, providerGroups: [ProviderGroup] = [], proxyModeEnabled: Bool = false, proxyModePort: Int = 32000) {
         self.providers = providers
         self.currentProvider = currentProvider
         self.autoUpdate = autoUpdate
@@ -42,6 +47,8 @@ struct AppConfig: Codable {
         self.proxyPort = proxyPort
         self.autoStartup = autoStartup
         self.providerGroups = providerGroups
+        self.proxyModeEnabled = proxyModeEnabled
+        self.proxyModePort = proxyModePort
     }
 
     func encode(to encoder: Encoder) throws {
@@ -53,6 +60,8 @@ struct AppConfig: Codable {
         try container.encode(proxyPort, forKey: .proxyPort)
         try container.encode(autoStartup, forKey: .autoStartup)
         try container.encode(providerGroups, forKey: .providerGroups)
+        try container.encode(proxyModeEnabled, forKey: .proxyModeEnabled)
+        try container.encode(proxyModePort, forKey: .proxyModePort)
     }
 }
 
@@ -66,6 +75,8 @@ class ConfigManager: ObservableObject {
     @Published var proxyPort: String = ""
     @Published var autoStartup: Bool = false
     @Published var providerGroups: [ProviderGroup] = []
+    @Published var proxyModeEnabled: Bool = false
+    @Published var proxyModePort: Int = 32000
 
     var groups: [String] {
         providerGroups.sorted { $0.priority < $1.priority }.map { $0.name }
@@ -166,14 +177,17 @@ class ConfigManager: ObservableObject {
     // MARK: - Group Management
 
     func addGroup(_ name: String) {
-        guard !name.isEmpty, !providerGroups.contains(where: { $0.name == name }) else { return }
+        guard !name.isEmpty,
+              name != ProviderGroup.proxyGroupName,
+              !providerGroups.contains(where: { $0.name == name }) else { return }
         objectWillChange.send()
-        let maxPriority = providerGroups.map { $0.priority }.max() ?? -1
+        let maxPriority = providerGroups.filter { !$0.isBuiltin }.map { $0.priority }.max() ?? -1
         providerGroups = providerGroups + [ProviderGroup(name: name, priority: maxPriority + 1)]
         saveConfiguration()
     }
 
     func removeGroup(_ name: String) {
+        guard let group = providerGroups.first(where: { $0.name == name }), !group.isBuiltin else { return }
         objectWillChange.send()
         providerGroups = providerGroups.filter { $0.name != name }
         providers = providers.map { provider in
@@ -189,10 +203,12 @@ class ConfigManager: ObservableObject {
     }
 
     func updateGroup(_ group: ProviderGroup) {
+        guard let existing = providerGroups.first(where: { $0.id == group.id }) else { return }
+        if existing.isBuiltin && group.name != existing.name { return }
         objectWillChange.send()
-        let oldName = providerGroups.first { $0.id == group.id }?.name
+        let oldName = existing.name
         providerGroups = providerGroups.map { $0.id == group.id ? group : $0 }
-        if let oldName = oldName, oldName != group.name {
+        if oldName != group.name {
             providers = providers.map { provider in
                 if provider.groupName == oldName {
                     var updated = provider
@@ -226,7 +242,34 @@ class ConfigManager: ObservableObject {
 
         return result
     }
-    
+
+    func getProxyPoolProviders() -> [APIProvider] {
+        providers
+            .filter { $0.groupName == ProviderGroup.proxyGroupName && $0.isValid }
+            .sorted { $0.priority < $1.priority }
+    }
+
+    // MARK: - Proxy Mode
+
+    func setProxyModeEnabled(_ enabled: Bool) {
+        objectWillChange.send()
+        proxyModeEnabled = enabled
+        saveConfiguration()
+        syncToClaudeConfig()
+        postConfigChangeNotification()
+        NotificationCenter.default.post(name: .proxyModeDidChange, object: nil, userInfo: ["enabled": enabled])
+    }
+
+    func setProxyModePort(_ port: Int) {
+        objectWillChange.send()
+        proxyModePort = port
+        saveConfiguration()
+        if proxyModeEnabled {
+            syncToClaudeConfig()
+        }
+        postConfigChangeNotification()
+    }
+
     func updateGlobalSettings(autoUpdate: Bool, proxyHost: String, proxyPort: String, autoStartup: Bool) {
         self.autoUpdate = autoUpdate
         self.proxyHost = proxyHost
@@ -357,6 +400,9 @@ class ConfigManager: ObservableObject {
             self.proxyPort = config.proxyPort
             self.autoStartup = config.autoStartup
             self.providerGroups = config.providerGroups
+            self.proxyModeEnabled = config.proxyModeEnabled
+            self.proxyModePort = config.proxyModePort
+            ensureProxyGroupExists()
             DispatchQueue.main.async {
                 self.postConfigChangeNotification()
             }
@@ -373,6 +419,9 @@ class ConfigManager: ObservableObject {
                 self.proxyPort = config.proxyPort
                 self.autoStartup = config.autoStartup
                 self.providerGroups = config.providerGroups
+                self.proxyModeEnabled = config.proxyModeEnabled
+                self.proxyModePort = config.proxyModePort
+                ensureProxyGroupExists()
                 DispatchQueue.main.async {
                     self.postConfigChangeNotification()
                 }
@@ -385,6 +434,16 @@ class ConfigManager: ObservableObject {
             self.proxyPort = ""
             self.autoStartup = false
             self.providerGroups = []
+            self.proxyModeEnabled = false
+            self.proxyModePort = 32000
+            ensureProxyGroupExists()
+        }
+    }
+
+    private func ensureProxyGroupExists() {
+        if !providerGroups.contains(where: { $0.isProxyGroup }) {
+            providerGroups.insert(ProviderGroup.createProxyGroup(), at: 0)
+            saveConfiguration()
         }
     }
     
@@ -396,7 +455,9 @@ class ConfigManager: ObservableObject {
             proxyHost: proxyHost,
             proxyPort: proxyPort,
             autoStartup: autoStartup,
-            providerGroups: providerGroups
+            providerGroups: providerGroups,
+            proxyModeEnabled: proxyModeEnabled,
+            proxyModePort: proxyModePort
         )
         
         // 保存到文件
@@ -488,19 +549,26 @@ class ConfigManager: ObservableObject {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: claudeConfigPath.path)
     }
     
+    static let proxyModeDefaultKey = "ccs-proxy-mode"
+
     private func updateSwitcherManagedFields(_ config: inout [String: Any]) {
         var env = config["env"] as? [String: Any] ?? [:]
-        
-        if let provider = currentProvider {
+
+        if proxyModeEnabled {
+            env["ANTHROPIC_API_KEY"] = Self.proxyModeDefaultKey
+            env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:\(proxyModePort)"
+            env.removeValue(forKey: "ANTHROPIC_MODEL")
+            env.removeValue(forKey: "ANTHROPIC_SMALL_FAST_MODEL")
+        } else if let provider = currentProvider {
             env["ANTHROPIC_API_KEY"] = provider.key
             env["ANTHROPIC_BASE_URL"] = provider.url
-            
+
             if let largeModel = provider.largeModel, !largeModel.isEmpty {
                 env["ANTHROPIC_MODEL"] = largeModel
             } else {
                 env.removeValue(forKey: "ANTHROPIC_MODEL")
             }
-            
+
             if let smallModel = provider.smallModel, !smallModel.isEmpty {
                 env["ANTHROPIC_SMALL_FAST_MODEL"] = smallModel
             } else {
@@ -753,4 +821,5 @@ class ConfigManager: ObservableObject {
 extension Notification.Name {
     static let configDidChange = Notification.Name("configDidChange")
     static let balanceDidUpdate = Notification.Name("balanceDidUpdate")
+    static let proxyModeDidChange = Notification.Name("proxyModeDidChange")
 }
