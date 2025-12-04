@@ -37,7 +37,7 @@ struct APIProvider: Codable, Identifiable, Equatable {
         self.groupName = try container.decodeIfPresent(String.self, forKey: .groupName)
         self.priority = try container.decodeIfPresent(Int.self, forKey: .priority) ?? 0
     }
-    
+
     // 验证 API 密钥是否配置
     var isValid: Bool {
         return !name.isEmpty && !url.isEmpty && !key.isEmpty
@@ -53,16 +53,19 @@ struct ProviderGroup: Codable, Identifiable, Equatable {
     var name: String
     var priority: Int
     var isBuiltin: Bool
+    /// 代理池分组引用的服务商 ID 列表（仅代理池分组使用）
+    var providerRefs: [UUID]
 
     var isProxyGroup: Bool {
         id == Self.proxyGroupID
     }
 
-    init(id: UUID = UUID(), name: String, priority: Int = 0, isBuiltin: Bool = false) {
+    init(id: UUID = UUID(), name: String, priority: Int = 0, isBuiltin: Bool = false, providerRefs: [UUID] = []) {
         self.id = id
         self.name = name
         self.priority = priority
         self.isBuiltin = isBuiltin
+        self.providerRefs = providerRefs
     }
 
     init(from decoder: Decoder) throws {
@@ -71,10 +74,11 @@ struct ProviderGroup: Codable, Identifiable, Equatable {
         self.name = try container.decode(String.self, forKey: .name)
         self.priority = try container.decodeIfPresent(Int.self, forKey: .priority) ?? 0
         self.isBuiltin = try container.decodeIfPresent(Bool.self, forKey: .isBuiltin) ?? false
+        self.providerRefs = try container.decodeIfPresent([UUID].self, forKey: .providerRefs) ?? []
     }
 
     static func createProxyGroup() -> ProviderGroup {
-        ProviderGroup(id: proxyGroupID, name: proxyGroupName, priority: -1000, isBuiltin: true)
+        ProviderGroup(id: proxyGroupID, name: proxyGroupName, priority: -1000, isBuiltin: true, providerRefs: [])
     }
 }
 
@@ -84,7 +88,7 @@ struct UsageStats: Codable {
     let totalTokens: Int
     let cost: Double
     let date: Date
-    
+
     init(totalRequests: Int = 0, totalTokens: Int = 0, cost: Double = 0.0, date: Date = Date()) {
         self.totalRequests = totalRequests
         self.totalTokens = totalTokens
@@ -101,16 +105,16 @@ struct WeeklyUsageStats {
     let dailyStats: [UsageStats]
     let averageRequestsPerDay: Double
     let peakDay: Date?
-    
+
     init(dailyStats: [UsageStats]) {
         self.dailyStats = dailyStats
         self.totalRequests = dailyStats.reduce(0) { $0 + $1.totalRequests }
         self.totalTokens = dailyStats.reduce(0) { $0 + $1.totalTokens }
         self.totalCost = dailyStats.reduce(0) { $0 + $1.cost }
-        
+
         let daysCount = max(dailyStats.count, 1)
         self.averageRequestsPerDay = Double(totalRequests) / Double(daysCount)
-        
+
         // 找到请求量最高的一天
         self.peakDay = dailyStats.max(by: { $0.totalRequests < $1.totalRequests })?.date
     }
@@ -121,7 +125,7 @@ enum UsageMetricType: CaseIterable {
     case requests
     case tokens
     case cost
-    
+
     var title: String {
         switch self {
         case .requests:
@@ -132,7 +136,7 @@ enum UsageMetricType: CaseIterable {
             return "费用"
         }
     }
-    
+
     var unit: String {
         switch self {
         case .requests:

@@ -67,6 +67,15 @@ struct SettingsView: View {
                         var updated = provider
                         updated.groupName = groupName
                         configManager.updateProvider(updated)
+                    },
+                    onAddToProxyPool: { provider in
+                        configManager.addToProxyPool(provider)
+                    },
+                    onRemoveFromProxyPool: { provider in
+                        configManager.removeFromProxyPool(provider)
+                    },
+                    isInProxyPool: { provider in
+                        configManager.isInProxyPool(provider)
                     }
                 )
 
@@ -579,14 +588,18 @@ struct AvailableConfigsCard: View {
     let onDeleteGroup: (String) -> Void
     let onUpdateGroup: (ProviderGroup) -> Void
     let onMoveToGroup: (APIProvider, String?) -> Void
+    let onAddToProxyPool: (APIProvider) -> Void
+    let onRemoveFromProxyPool: (APIProvider) -> Void
+    let isInProxyPool: (APIProvider) -> Bool
 
     @State private var showingAddGroup = false
     @State private var newGroupName = ""
     @State private var collapsedGroups: Set<String> = []
     @State private var editingGroup: ProviderGroup?
 
-    private var groups: [String] {
-        providerGroups.sorted { $0.priority < $1.priority }.map { $0.name }
+    /// 过滤掉代理池分组的普通分组列表（用于移动到分组菜单）
+    private var normalGroups: [String] {
+        providerGroups.filter { !$0.isProxyGroup }.sorted { $0.priority < $1.priority }.map { $0.name }
     }
 
     private func groupedProviders() -> [(group: ProviderGroup?, providers: [APIProvider])] {
@@ -594,8 +607,16 @@ struct AvailableConfigsCard: View {
 
         let sortedGroups = providerGroups.sorted { $0.priority < $1.priority }
         for group in sortedGroups {
-            let groupProviders = providers.filter { $0.groupName == group.name }.sorted { $0.priority < $1.priority }
-            result.append((group: group, providers: groupProviders))
+            if group.isProxyGroup {
+                // 代理池分组通过引用 ID 获取服务商
+                let refProviders = group.providerRefs.compactMap { refId in
+                    providers.first { $0.id == refId }
+                }
+                result.append((group: group, providers: refProviders))
+            } else {
+                let groupProviders = providers.filter { $0.groupName == group.name }.sorted { $0.priority < $1.priority }
+                result.append((group: group, providers: groupProviders))
+            }
         }
 
         let ungrouped = providers.filter { $0.groupName == nil || $0.groupName?.isEmpty == true }.sorted { $0.priority < $1.priority }
@@ -648,7 +669,7 @@ struct AvailableConfigsCard: View {
                                 group: item.group,
                                 providers: item.providers,
                                 currentProvider: currentProvider,
-                                groups: groups,
+                                groups: normalGroups,
                                 isCollapsed: collapsedGroups.contains(item.group?.name ?? ""),
                                 onToggle: {
                                     let key = item.group?.name ?? ""
@@ -663,6 +684,9 @@ struct AvailableConfigsCard: View {
                                 onCopy: onCopy,
                                 onSelect: onSelect,
                                 onMoveToGroup: onMoveToGroup,
+                                onAddToProxyPool: onAddToProxyPool,
+                                onRemoveFromProxyPool: onRemoveFromProxyPool,
+                                isInProxyPool: isInProxyPool,
                                 onEditGroup: item.group?.isBuiltin == true ? nil : { group in
                                     editingGroup = group
                                 },
@@ -713,6 +737,9 @@ struct GroupSection: View {
     let onCopy: (APIProvider) -> Void
     let onSelect: (APIProvider) -> Void
     let onMoveToGroup: (APIProvider, String?) -> Void
+    let onAddToProxyPool: (APIProvider) -> Void
+    let onRemoveFromProxyPool: (APIProvider) -> Void
+    let isInProxyPool: (APIProvider) -> Bool
     let onEditGroup: ((ProviderGroup) -> Void)?
     let onDeleteGroup: (() -> Void)?
 
@@ -780,11 +807,15 @@ struct GroupSection: View {
                             provider: provider,
                             isCurrent: provider.id == currentProvider?.id,
                             groups: groups,
+                            isInProxyPool: isInProxyPool(provider),
+                            isInProxyPoolGroup: group?.isProxyGroup == true,
                             onEdit: onEdit,
                             onDelete: onDelete,
                             onCopy: onCopy,
                             onSelect: onSelect,
-                            onMoveToGroup: onMoveToGroup
+                            onMoveToGroup: onMoveToGroup,
+                            onAddToProxyPool: onAddToProxyPool,
+                            onRemoveFromProxyPool: onRemoveFromProxyPool
                         )
                     }
                 }
@@ -883,11 +914,15 @@ struct ProviderRowCompact: View {
     let provider: APIProvider
     let isCurrent: Bool
     let groups: [String]
+    let isInProxyPool: Bool
+    let isInProxyPoolGroup: Bool
     let onEdit: (APIProvider) -> Void
     let onDelete: (APIProvider) -> Void
     let onCopy: (APIProvider) -> Void
     let onSelect: (APIProvider) -> Void
     let onMoveToGroup: (APIProvider, String?) -> Void
+    let onAddToProxyPool: (APIProvider) -> Void
+    let onRemoveFromProxyPool: (APIProvider) -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -911,6 +946,16 @@ struct ProviderRowCompact: View {
                             .foregroundColor(.green)
                             .cornerRadius(3)
                     }
+
+                    if isInProxyPool && !isInProxyPoolGroup {
+                        Text("代理池")
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.purple.opacity(0.2))
+                            .foregroundColor(.purple)
+                            .cornerRadius(3)
+                    }
                 }
 
                 Text(provider.url)
@@ -929,24 +974,45 @@ struct ProviderRowCompact: View {
                     Divider()
                 }
 
-                Menu("移动到分组") {
-                    Button(action: { onMoveToGroup(provider, nil) }) {
-                        HStack {
-                            Text("未分组")
-                            if provider.groupName == nil || provider.groupName?.isEmpty == true {
-                                Image(systemName: "checkmark")
-                            }
+                // 代理池引用操作
+                if isInProxyPoolGroup {
+                    // 在代理池分组中显示，只显示移除引用选项
+                    Button(action: { onRemoveFromProxyPool(provider) }) {
+                        Label("从代理池移除", systemImage: "minus.circle")
+                    }
+                } else {
+                    // 不在代理池分组中显示
+                    if isInProxyPool {
+                        Button(action: { onRemoveFromProxyPool(provider) }) {
+                            Label("从代理池移除", systemImage: "minus.circle")
+                        }
+                    } else {
+                        Button(action: { onAddToProxyPool(provider) }) {
+                            Label("添加到代理池", systemImage: "plus.circle")
                         }
                     }
 
-                    if !groups.isEmpty {
-                        Divider()
-                        ForEach(groups, id: \.self) { group in
-                            Button(action: { onMoveToGroup(provider, group) }) {
-                                HStack {
-                                    Text(group)
-                                    if provider.groupName == group {
-                                        Image(systemName: "checkmark")
+                    Divider()
+
+                    Menu("移动到分组") {
+                        Button(action: { onMoveToGroup(provider, nil) }) {
+                            HStack {
+                                Text("未分组")
+                                if provider.groupName == nil || provider.groupName?.isEmpty == true {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+
+                        if !groups.isEmpty {
+                            Divider()
+                            ForEach(groups, id: \.self) { group in
+                                Button(action: { onMoveToGroup(provider, group) }) {
+                                    HStack {
+                                        Text(group)
+                                        if provider.groupName == group {
+                                            Image(systemName: "checkmark")
+                                        }
                                     }
                                 }
                             }
@@ -991,8 +1057,21 @@ struct ProxySettingsCard: View {
     let onSave: () -> Void
     let onRefresh: () -> Void
     @ObservedObject private var configManager = ConfigManager.shared
+    @ObservedObject private var proxyService = LocalProxyService.shared
     @State private var launchAgentStatus: Bool = false
     @State private var proxyModePort: String = ""
+    @State private var proxyRequestTimeout: String = ""
+
+    private func timeAgo(_ date: Date) -> String {
+        let seconds = Int(-date.timeIntervalSinceNow)
+        if seconds < 60 {
+            return "\(seconds)秒前"
+        } else if seconds < 3600 {
+            return "\(seconds / 60)分钟前"
+        } else {
+            return "\(seconds / 3600)小时前"
+        }
+    }
 
     var body: some View {
         CardView {
@@ -1071,6 +1150,23 @@ struct ProxySettingsCard: View {
                             .foregroundColor(.secondary)
 
                         Spacer()
+
+                        Text("超时")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        TextField("120", text: $proxyRequestTimeout)
+                            .textFieldStyle(ModernTextFieldStyle())
+                            .frame(width: 50)
+                            .onSubmit {
+                                if let timeout = Int(proxyRequestTimeout), timeout >= 10 && timeout <= 600 {
+                                    configManager.setProxyRequestTimeout(timeout)
+                                }
+                            }
+
+                        Text("秒")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
 
                     let poolCount = configManager.getProxyPoolProviders().count
@@ -1084,9 +1180,48 @@ struct ProxySettingsCard: View {
                                 .foregroundColor(.orange)
                         }
                     } else {
-                        Text("代理池中有 \(poolCount) 个可用 Provider")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 8) {
+                                Text("代理池中有 \(poolCount) 个可用 Provider")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                Spacer()
+
+                                if proxyService.isRequesting, let currentProvider = proxyService.currentRequestingProvider {
+                                    HStack(spacing: 4) {
+                                        ProgressView()
+                                            .scaleEffect(0.6)
+                                            .frame(width: 12, height: 12)
+                                        Text("正在请求: \(currentProvider.name)")
+                                            .font(.caption)
+                                            .foregroundColor(.blue)
+                                            .fontWeight(.medium)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.blue.opacity(0.1))
+                                    .cornerRadius(4)
+                                } else if let lastProvider = proxyService.lastSuccessProvider,
+                                          let lastTime = proxyService.lastSuccessTime {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(.green)
+                                            .font(.caption)
+                                        Text("上次: \(lastProvider.name)")
+                                            .font(.caption)
+                                            .foregroundColor(.green)
+                                        Text("(\(timeAgo(lastTime)))")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.green.opacity(0.1))
+                                    .cornerRadius(4)
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -1124,6 +1259,7 @@ struct ProxySettingsCard: View {
         .onAppear {
             launchAgentStatus = configManager.checkLaunchAgentStatus()
             proxyModePort = String(configManager.proxyModePort)
+            proxyRequestTimeout = String(configManager.proxyRequestTimeout)
         }
         .onChange(of: autoStartup) { _ in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -1132,6 +1268,9 @@ struct ProxySettingsCard: View {
         }
         .onChange(of: configManager.proxyModePort) { newValue in
             proxyModePort = String(newValue)
+        }
+        .onChange(of: configManager.proxyRequestTimeout) { newValue in
+            proxyRequestTimeout = String(newValue)
         }
     }
 }

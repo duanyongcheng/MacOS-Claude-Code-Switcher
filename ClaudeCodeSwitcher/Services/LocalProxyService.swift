@@ -1,13 +1,23 @@
 import Foundation
 import Network
+import Combine
 
-class LocalProxyService {
+class LocalProxyService: ObservableObject {
     static let shared = LocalProxyService()
 
     private var listener: NWListener?
     private var isRunning = false
     private let queue = DispatchQueue(label: "com.ccs.proxy", qos: .userInitiated)
     private let session: URLSession
+
+    /// 当前正在请求的服务商
+    @Published var currentRequestingProvider: APIProvider?
+    /// 最后一次成功请求的服务商
+    @Published var lastSuccessProvider: APIProvider?
+    /// 最后一次成功请求的时间
+    @Published var lastSuccessTime: Date?
+    /// 是否正在请求中
+    @Published var isRequesting: Bool = false
 
     private init() {
         let config = URLSessionConfiguration.default
@@ -181,6 +191,10 @@ class LocalProxyService {
         connection: NWConnection
     ) {
         guard startIndex < providers.count else {
+            DispatchQueue.main.async {
+                self.currentRequestingProvider = nil
+                self.isRequesting = false
+            }
             sendErrorResponse(connection: connection, statusCode: 502, message: "All providers failed")
             return
         }
@@ -188,10 +202,23 @@ class LocalProxyService {
         let provider = providers[startIndex]
         print("[Proxy] Trying provider: \(provider.name) (\(startIndex + 1)/\(providers.count))")
 
+        // 更新当前正在请求的服务商
+        DispatchQueue.main.async {
+            self.currentRequestingProvider = provider
+            self.isRequesting = true
+        }
+
         forwardRequest(requestData: requestData, to: provider) { [weak self] result in
             switch result {
             case .success(let responseData):
                 self?.sendResponse(connection: connection, data: responseData)
+                // 请求成功后更新状态
+                DispatchQueue.main.async {
+                    self?.lastSuccessProvider = provider
+                    self?.lastSuccessTime = Date()
+                    self?.currentRequestingProvider = nil
+                    self?.isRequesting = false
+                }
             case .failure(let error):
                 print("[Proxy] Provider \(provider.name) failed: \(error.localizedDescription)")
                 self?.forwardRequestWithFailover(
@@ -227,11 +254,12 @@ class LocalProxyService {
             return
         }
 
-        print("[Proxy] Forwarding to: \(finalURL.absoluteString)")
+        let timeout = TimeInterval(ConfigManager.shared.proxyRequestTimeout)
+        print("[Proxy] Forwarding to: \(finalURL.absoluteString) (timeout: \(Int(timeout))s)")
 
         var request = URLRequest(url: finalURL)
         request.httpMethod = method
-        request.timeoutInterval = 300
+        request.timeoutInterval = timeout
 
         for (key, value) in headers {
             let lowerKey = key.lowercased()
@@ -264,7 +292,14 @@ class LocalProxyService {
                 return
             }
 
-            if httpResponse.statusCode >= 500 {
+            // 触发 failover 的状态码：
+            // - 401: 未授权（API Key 无效）
+            // - 403: 禁止访问（余额不足、权限不足等）
+            // - 429: 限流
+            // - 5xx: 服务器错误
+            let failoverStatusCodes: Set<Int> = [401, 403, 429]
+            if httpResponse.statusCode >= 500 || failoverStatusCodes.contains(httpResponse.statusCode) {
+                print("[Proxy] Provider returned \(httpResponse.statusCode), will try next")
                 completion(.failure(ProxyError.serverError(httpResponse.statusCode)))
                 return
             }

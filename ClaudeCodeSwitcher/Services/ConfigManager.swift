@@ -13,10 +13,11 @@ struct AppConfig: Codable {
     let providerGroups: [ProviderGroup]
     let proxyModeEnabled: Bool
     let proxyModePort: Int
+    let proxyRequestTimeout: Int
 
     enum CodingKeys: String, CodingKey {
         case providers, currentProvider, autoUpdate, proxyHost, proxyPort, autoStartup, groups, providerGroups
-        case proxyModeEnabled, proxyModePort
+        case proxyModeEnabled, proxyModePort, proxyRequestTimeout
     }
 
     init(from decoder: Decoder) throws {
@@ -37,9 +38,10 @@ struct AppConfig: Codable {
         }
         self.proxyModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .proxyModeEnabled) ?? false
         self.proxyModePort = try container.decodeIfPresent(Int.self, forKey: .proxyModePort) ?? 32000
+        self.proxyRequestTimeout = try container.decodeIfPresent(Int.self, forKey: .proxyRequestTimeout) ?? 120
     }
 
-    init(providers: [APIProvider], currentProvider: APIProvider?, autoUpdate: Bool, proxyHost: String, proxyPort: String, autoStartup: Bool, providerGroups: [ProviderGroup] = [], proxyModeEnabled: Bool = false, proxyModePort: Int = 32000) {
+    init(providers: [APIProvider], currentProvider: APIProvider?, autoUpdate: Bool, proxyHost: String, proxyPort: String, autoStartup: Bool, providerGroups: [ProviderGroup] = [], proxyModeEnabled: Bool = false, proxyModePort: Int = 32000, proxyRequestTimeout: Int = 120) {
         self.providers = providers
         self.currentProvider = currentProvider
         self.autoUpdate = autoUpdate
@@ -49,6 +51,7 @@ struct AppConfig: Codable {
         self.providerGroups = providerGroups
         self.proxyModeEnabled = proxyModeEnabled
         self.proxyModePort = proxyModePort
+        self.proxyRequestTimeout = proxyRequestTimeout
     }
 
     func encode(to encoder: Encoder) throws {
@@ -62,6 +65,7 @@ struct AppConfig: Codable {
         try container.encode(providerGroups, forKey: .providerGroups)
         try container.encode(proxyModeEnabled, forKey: .proxyModeEnabled)
         try container.encode(proxyModePort, forKey: .proxyModePort)
+        try container.encode(proxyRequestTimeout, forKey: .proxyRequestTimeout)
     }
 }
 
@@ -77,24 +81,25 @@ class ConfigManager: ObservableObject {
     @Published var providerGroups: [ProviderGroup] = []
     @Published var proxyModeEnabled: Bool = false
     @Published var proxyModePort: Int = 32000
+    @Published var proxyRequestTimeout: Int = 120
 
     var groups: [String] {
         providerGroups.sorted { $0.priority < $1.priority }.map { $0.name }
     }
-    
+
     private let userDefaults = UserDefaults.standard
     private let claudeConfigPath: URL
     private let appConfigPath: URL
-    
+
     private init() {
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
         claudeConfigPath = homeDir.appendingPathComponent(".claude/settings.json")
         appConfigPath = homeDir.appendingPathComponent(".config/ccs/claude-switch.json")
         loadConfiguration()
     }
-    
+
     // MARK: - Public Methods
-    
+
     func reloadConfiguration() {
         print("=== reloadConfiguration() 被调用 ===")
         DispatchQueue.main.async {
@@ -102,11 +107,11 @@ class ConfigManager: ObservableObject {
             self.loadConfiguration()
         }
     }
-    
+
     func getProviders() -> [APIProvider] {
         return providers
     }
-    
+
     func addProvider(_ provider: APIProvider) {
         objectWillChange.send()
         print("添加新提供商: \(provider.name)")
@@ -117,39 +122,44 @@ class ConfigManager: ObservableObject {
         syncToClaudeConfig()
         postConfigChangeNotification()
     }
-    
+
     func updateProvider(_ provider: APIProvider) {
         objectWillChange.send()
         if providers.contains(where: { $0.id == provider.id }) {
             // 重新赋值以确保 @Published 触发变更
             providers = providers.map { $0.id == provider.id ? provider : $0 }
-            
+
             // 如果更新的是当前提供商，也要更新当前提供商
             if currentProvider?.id == provider.id {
                 currentProvider = provider
             }
-            
+
             saveConfiguration()
             syncToClaudeConfig()
             postConfigChangeNotification()
         }
     }
-    
+
     func removeProvider(_ provider: APIProvider) {
         objectWillChange.send()
         // 重新赋值以确保 @Published 触发变更
         providers = providers.filter { $0.id != provider.id }
-        
+
         // 如果删除的是当前提供商，清空当前提供商
         if currentProvider?.id == provider.id {
             currentProvider = nil
         }
-        
+
+        // 从代理池引用中移除该服务商
+        if let index = providerGroups.firstIndex(where: { $0.isProxyGroup }) {
+            providerGroups[index].providerRefs.removeAll { $0 == provider.id }
+        }
+
         saveConfiguration()
         syncToClaudeConfig()
         postConfigChangeNotification()
     }
-    
+
     func setCurrentProvider(_ provider: APIProvider) {
         objectWillChange.send()
         currentProvider = provider
@@ -157,7 +167,7 @@ class ConfigManager: ObservableObject {
         syncToClaudeConfig()
         postConfigChangeNotification()
     }
-    
+
     func copyProvider(_ provider: APIProvider) {
         objectWillChange.send()
         let copiedProvider = APIProvider(
@@ -231,8 +241,16 @@ class ConfigManager: ObservableObject {
 
         let sortedGroups = providerGroups.sorted { $0.priority < $1.priority }
         for group in sortedGroups {
-            let groupProviders = providers.filter { $0.groupName == group.name }.sorted { $0.priority < $1.priority }
-            result.append((group: group, providers: groupProviders))
+            if group.isProxyGroup {
+                // 代理池分组通过引用 ID 获取服务商
+                let refProviders = group.providerRefs.compactMap { refId in
+                    providers.first { $0.id == refId }
+                }
+                result.append((group: group, providers: refProviders))
+            } else {
+                let groupProviders = providers.filter { $0.groupName == group.name }.sorted { $0.priority < $1.priority }
+                result.append((group: group, providers: groupProviders))
+            }
         }
 
         let ungrouped = providers.filter { $0.groupName == nil || $0.groupName?.isEmpty == true }.sorted { $0.priority < $1.priority }
@@ -244,9 +262,36 @@ class ConfigManager: ObservableObject {
     }
 
     func getProxyPoolProviders() -> [APIProvider] {
-        providers
-            .filter { $0.groupName == ProviderGroup.proxyGroupName && $0.isValid }
-            .sorted { $0.priority < $1.priority }
+        guard let proxyGroup = providerGroups.first(where: { $0.isProxyGroup }) else {
+            return []
+        }
+        return proxyGroup.providerRefs.compactMap { refId in
+            providers.first { $0.id == refId && $0.isValid }
+        }
+    }
+
+    // MARK: - Proxy Pool Reference Management
+
+    func addToProxyPool(_ provider: APIProvider) {
+        guard let index = providerGroups.firstIndex(where: { $0.isProxyGroup }) else { return }
+        guard !providerGroups[index].providerRefs.contains(provider.id) else { return }
+        objectWillChange.send()
+        providerGroups[index].providerRefs.append(provider.id)
+        saveConfiguration()
+        postConfigChangeNotification()
+    }
+
+    func removeFromProxyPool(_ provider: APIProvider) {
+        guard let index = providerGroups.firstIndex(where: { $0.isProxyGroup }) else { return }
+        objectWillChange.send()
+        providerGroups[index].providerRefs.removeAll { $0 == provider.id }
+        saveConfiguration()
+        postConfigChangeNotification()
+    }
+
+    func isInProxyPool(_ provider: APIProvider) -> Bool {
+        guard let proxyGroup = providerGroups.first(where: { $0.isProxyGroup }) else { return false }
+        return proxyGroup.providerRefs.contains(provider.id)
     }
 
     // MARK: - Proxy Mode
@@ -270,15 +315,22 @@ class ConfigManager: ObservableObject {
         postConfigChangeNotification()
     }
 
+    func setProxyRequestTimeout(_ timeout: Int) {
+        objectWillChange.send()
+        proxyRequestTimeout = max(10, min(600, timeout)) // 限制在 10-600 秒之间
+        saveConfiguration()
+        postConfigChangeNotification()
+    }
+
     func updateGlobalSettings(autoUpdate: Bool, proxyHost: String, proxyPort: String, autoStartup: Bool) {
         self.autoUpdate = autoUpdate
         self.proxyHost = proxyHost
         self.proxyPort = proxyPort
-        
+
         // 更新开机自启动设置
         let wasAutoStartup = self.autoStartup
         self.autoStartup = autoStartup
-        
+
         if wasAutoStartup != autoStartup {
             updateLaunchAgentStatus(autoStartup)
         } else if autoStartup {
@@ -288,67 +340,67 @@ class ConfigManager: ObservableObject {
                 updateLaunchAgentStatus(true)
             }
         }
-        
+
         saveConfiguration()
         syncToClaudeConfig()
         postConfigChangeNotification()
     }
-    
+
     // MARK: - Private Methods
-    
+
     // MARK: - File Management
-    
+
     private func ensureConfigDirectoryExists() throws {
         let configDir = appConfigPath.deletingLastPathComponent()
         if !FileManager.default.fileExists(atPath: configDir.path) {
             try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         }
     }
-    
+
     private func atomicWrite(to url: URL, data: Data) throws {
         let tempDir = FileManager.default.temporaryDirectory
         let tempFile = tempDir.appendingPathComponent(UUID().uuidString)
-        
+
         // 写入临时文件
         try data.write(to: tempFile)
-        
+
         // 如果目标文件存在，先删除
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
-        
+
         // 原子性替换
         try FileManager.default.moveItem(at: tempFile, to: url)
     }
-    
+
     private func loadConfigFromFile() throws -> AppConfig? {
         guard FileManager.default.fileExists(atPath: appConfigPath.path) else {
             return nil
         }
-        
+
         let data = try Data(contentsOf: appConfigPath)
         return try JSONDecoder().decode(AppConfig.self, from: data)
     }
-    
+
     private func saveConfigToFile(_ config: AppConfig) throws {
         try ensureConfigDirectoryExists()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(config)
         try atomicWrite(to: appConfigPath, data: data)
-        
+
         // 设置文件权限为仅用户可读写
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: appConfigPath.path)
     }
-    
+
     private func migrateFromUserDefaults() throws {
         // 检查是否有 UserDefaults 配置
         guard userDefaults.data(forKey: "providers") != nil else {
             return // 没有需要迁移的配置
         }
-        
+
         print("发现 UserDefaults 配置，开始迁移到 JSON 文件...")
-        
+
         // 从 UserDefaults 读取配置
         var providers: [APIProvider] = []
         var currentProvider: APIProvider?
@@ -356,17 +408,17 @@ class ConfigManager: ObservableObject {
         let proxyHost = userDefaults.string(forKey: "proxyHost") ?? ""
         let proxyPort = userDefaults.string(forKey: "proxyPort") ?? ""
         let autoStartup = userDefaults.bool(forKey: "autoStartup")
-        
+
         if let data = userDefaults.data(forKey: "providers"),
            let decodedProviders = try? JSONDecoder().decode([APIProvider].self, from: data) {
             providers = decodedProviders
         }
-        
+
         if let data = userDefaults.data(forKey: "currentProvider"),
            let decodedProvider = try? JSONDecoder().decode(APIProvider.self, from: data) {
             currentProvider = decodedProvider
         }
-        
+
         // 创建配置对象
         let config = AppConfig(
             providers: providers,
@@ -376,10 +428,10 @@ class ConfigManager: ObservableObject {
             proxyPort: proxyPort,
             autoStartup: autoStartup
         )
-        
+
         // 保存到文件
         try saveConfigToFile(config)
-        
+
         // 清理 UserDefaults
         userDefaults.removeObject(forKey: "providers")
         userDefaults.removeObject(forKey: "currentProvider")
@@ -387,10 +439,10 @@ class ConfigManager: ObservableObject {
         userDefaults.removeObject(forKey: "proxyHost")
         userDefaults.removeObject(forKey: "proxyPort")
         userDefaults.removeObject(forKey: "autoStartup")
-        
+
         print("配置迁移完成")
     }
-    
+
     private func loadConfiguration() {
         if let config = try? loadConfigFromFile() {
             self.providers = config.providers
@@ -402,6 +454,7 @@ class ConfigManager: ObservableObject {
             self.providerGroups = config.providerGroups
             self.proxyModeEnabled = config.proxyModeEnabled
             self.proxyModePort = config.proxyModePort
+            self.proxyRequestTimeout = config.proxyRequestTimeout
             ensureProxyGroupExists()
             DispatchQueue.main.async {
                 self.postConfigChangeNotification()
@@ -421,6 +474,7 @@ class ConfigManager: ObservableObject {
                 self.providerGroups = config.providerGroups
                 self.proxyModeEnabled = config.proxyModeEnabled
                 self.proxyModePort = config.proxyModePort
+                self.proxyRequestTimeout = config.proxyRequestTimeout
                 ensureProxyGroupExists()
                 DispatchQueue.main.async {
                     self.postConfigChangeNotification()
@@ -436,6 +490,7 @@ class ConfigManager: ObservableObject {
             self.providerGroups = []
             self.proxyModeEnabled = false
             self.proxyModePort = 32000
+            self.proxyRequestTimeout = 120
             ensureProxyGroupExists()
         }
     }
@@ -446,7 +501,7 @@ class ConfigManager: ObservableObject {
             saveConfiguration()
         }
     }
-    
+
     private func saveConfiguration() {
         let config = AppConfig(
             providers: providers,
@@ -457,14 +512,15 @@ class ConfigManager: ObservableObject {
             autoStartup: autoStartup,
             providerGroups: providerGroups,
             proxyModeEnabled: proxyModeEnabled,
-            proxyModePort: proxyModePort
+            proxyModePort: proxyModePort,
+            proxyRequestTimeout: proxyRequestTimeout
         )
-        
+
         // 保存到文件
         do {
             try saveConfigToFile(config)
             print("配置保存到文件成功: \(appConfigPath.path)")
-            
+
             // 验证保存的内容
             if let savedData = try? Data(contentsOf: appConfigPath),
                let savedConfig = try? JSONDecoder().decode(AppConfig.self, from: savedData) {
@@ -476,27 +532,27 @@ class ConfigManager: ObservableObject {
             saveToUserDefaultsFallback()
         }
     }
-    
+
     private func saveToUserDefaultsFallback() {
         // 备用方案：保存到 UserDefaults
         if let data = try? JSONEncoder().encode(providers) {
             userDefaults.set(data, forKey: "providers")
         }
-        
+
         if let currentProvider = currentProvider,
            let data = try? JSONEncoder().encode(currentProvider) {
             userDefaults.set(data, forKey: "currentProvider")
         } else {
             userDefaults.removeObject(forKey: "currentProvider")
         }
-        
+
         userDefaults.set(autoUpdate, forKey: "autoUpdate")
         userDefaults.set(proxyHost, forKey: "proxyHost")
         userDefaults.set(proxyPort, forKey: "proxyPort")
-        
+
         print("配置已保存到 UserDefaults 备用")
     }
-    
+
     private func syncToClaudeConfig() {
         do {
             // 确保 .claude 目录存在
@@ -504,28 +560,28 @@ class ConfigManager: ObservableObject {
             if !FileManager.default.fileExists(atPath: claudeDir.path) {
                 try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
             }
-            
+
             // 读取现有配置并保留未受管理的字段
             var claudeConfig = loadClaudeConfigDictionary()
-            
+
             // 更新 Switcher 管理的字段
             updateSwitcherManagedFields(&claudeConfig)
-            
+
             // 写入配置文件
             try writeClaudeConfigDictionary(claudeConfig)
-            
+
             print("已同步配置到 Claude 配置文件: \(claudeConfigPath.path)")
-            
+
         } catch {
             print("同步 Claude 配置失败: \(error)")
         }
     }
-    
+
     private func loadClaudeConfigDictionary() -> [String: Any] {
         guard FileManager.default.fileExists(atPath: claudeConfigPath.path) else {
             return [:]
         }
-        
+
         do {
             let data = try Data(contentsOf: claudeConfigPath)
             let jsonObject = try JSONSerialization.jsonObject(with: data, options: [])
@@ -537,18 +593,18 @@ class ConfigManager: ObservableObject {
         } catch {
             print("读取 Claude 配置失败: \(error)，将使用空配置")
         }
-        
+
         return [:]
     }
-    
+
     private func writeClaudeConfigDictionary(_ config: [String: Any]) throws {
         let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: claudeConfigPath, options: .atomic)
-        
+
         // 设置文件权限为仅用户可读写
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: claudeConfigPath.path)
     }
-    
+
     static let proxyModeDefaultKey = "ccs-proxy-mode"
 
     private func updateSwitcherManagedFields(_ config: inout [String: Any]) {
@@ -580,7 +636,7 @@ class ConfigManager: ObservableObject {
             env.removeValue(forKey: "ANTHROPIC_MODEL")
             env.removeValue(forKey: "ANTHROPIC_SMALL_FAST_MODEL")
         }
-        
+
         let proxyUrl = buildProxyUrl()
         if !proxyUrl.isEmpty {
             env["HTTPS_PROXY"] = proxyUrl
@@ -589,34 +645,34 @@ class ConfigManager: ObservableObject {
             env.removeValue(forKey: "HTTPS_PROXY")
             env.removeValue(forKey: "HTTP_PROXY")
         }
-        
+
         if !env.isEmpty {
             config["env"] = env
         } else {
             config.removeValue(forKey: "env")
         }
     }
-    
+
     private func buildProxyUrl() -> String {
         guard !proxyHost.isEmpty else { return "" }
-        
+
         let host = proxyHost
         let port = proxyPort.isEmpty ? "" : ":\(proxyPort)"
         let url = "\(host)\(port)"
-        
+
         if url.hasPrefix("http://") || url.hasPrefix("https://") {
             return url
         } else {
             return "http://\(url)"
         }
     }
-    
+
     private func postConfigChangeNotification() {
         NotificationCenter.default.post(name: .configDidChange, object: nil)
     }
-    
+
     // MARK: - Launch Agent Management
-    
+
     private func updateLaunchAgentStatus(_ shouldAutoStart: Bool) {
         if shouldAutoStart {
             installLaunchAgent()
@@ -624,46 +680,46 @@ class ConfigManager: ObservableObject {
             removeLaunchAgent()
         }
     }
-    
+
     // 检查开机自启状态
     func checkLaunchAgentStatus() -> Bool {
         let launchAgentsDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/LaunchAgents")
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.example.ClaudeCodeSwitcher"
         let plistPath = launchAgentsDir.appendingPathComponent("\(bundleIdentifier).plist")
-        
+
         // 检查 plist 文件是否存在
         guard FileManager.default.fileExists(atPath: plistPath.path) else {
             return false
         }
-        
+
         // 检查 launchctl 是否已加载
         let task = Process()
         task.launchPath = "/bin/launchctl"
         task.arguments = ["list", bundleIdentifier]
-        
+
         let pipe = Pipe()
         task.standardOutput = pipe
         task.standardError = pipe
-        
+
         task.launch()
         task.waitUntilExit()
-        
+
         return task.terminationStatus == 0
     }
-    
+
     private func installLaunchAgent() {
         let launchAgentsDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/LaunchAgents")
-        
+
         // 使用正确的 bundle identifier，避免硬编码
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.example.ClaudeCodeSwitcher"
         let plistPath = launchAgentsDir.appendingPathComponent("\(bundleIdentifier).plist")
-        
+
         print("正在安装 Launch Agent...")
         print("Bundle Identifier: \(bundleIdentifier)")
         print("Plist 路径: \(plistPath.path)")
-        
+
         // 确保 LaunchAgents 目录存在
         do {
             try FileManager.default.createDirectory(at: launchAgentsDir, withIntermediateDirectories: true)
@@ -672,24 +728,24 @@ class ConfigManager: ObservableObject {
             print("创建 LaunchAgents 目录失败: \(error)")
             return
         }
-        
+
         // 获取应用程序路径和可执行文件名称
         guard let bundlePath = Bundle.main.bundlePath as String? else {
             print("无法获取应用程序路径")
             return
         }
-        
+
         guard let executableName = Bundle.main.executablePath?.components(separatedBy: "/").last else {
             print("无法获取可执行文件名称")
             return
         }
-        
+
         let executablePath = "\(bundlePath)/Contents/MacOS/\(executableName)"
-        
+
         print("应用路径: \(bundlePath)")
         print("可执行文件路径: \(executablePath)")
         print("可执行文件名称: \(executableName)")
-        
+
         let plistContent = """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -712,11 +768,11 @@ class ConfigManager: ObservableObject {
         </dict>
         </plist>
         """
-        
+
         do {
             try plistContent.write(to: plistPath, atomically: true, encoding: .utf8)
             print("Launch Agent plist 文件写入成功: \(plistPath.path)")
-            
+
             // 验证文件是否真的写入了
             if FileManager.default.fileExists(atPath: plistPath.path) {
                 print("Plist 文件验证成功")
@@ -724,7 +780,7 @@ class ConfigManager: ObservableObject {
                 print("Plist 文件验证失败 - 文件不存在")
                 return
             }
-            
+
             // 先卸载旧的 Launch Agent（如果存在）
             print("正在卸载旧的 Launch Agent...")
             let unloadTask = Process()
@@ -733,7 +789,7 @@ class ConfigManager: ObservableObject {
             unloadTask.launch()
             unloadTask.waitUntilExit()
             print("卸载操作完成，退出码: \(unloadTask.terminationStatus)")
-            
+
             // 加载新的 Launch Agent
             print("正在加载新的 Launch Agent...")
             let loadTask = Process()
@@ -741,26 +797,26 @@ class ConfigManager: ObservableObject {
             loadTask.arguments = ["load", plistPath.path]
             loadTask.launch()
             loadTask.waitUntilExit()
-            
+
             if loadTask.terminationStatus == 0 {
                 print("Launch Agent 加载成功")
-                
+
                 // 验证是否真的加载了
                 let verifyTask = Process()
                 verifyTask.launchPath = "/bin/launchctl"
                 verifyTask.arguments = ["list", bundleIdentifier]
                 verifyTask.launch()
                 verifyTask.waitUntilExit()
-                
+
                 if verifyTask.terminationStatus == 0 {
                     print("Launch Agent 验证成功 - 已在 launchctl 列表中")
                 } else {
                     print("Launch Agent 验证失败 - 不在 launchctl 列表中")
                 }
-                
+
             } else {
                 print("Launch Agent 加载失败，退出码: \(loadTask.terminationStatus)")
-                
+
                 // 获取错误输出
                 let errorTask = Process()
                 errorTask.launchPath = "/bin/launchctl"
@@ -769,33 +825,33 @@ class ConfigManager: ObservableObject {
                 errorTask.standardError = errorPipe
                 errorTask.launch()
                 errorTask.waitUntilExit()
-                
+
                 let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
                 if let errorMessage = String(data: errorData, encoding: .utf8) {
                     print("Launch Agent 错误信息: \(errorMessage)")
                 }
             }
-            
+
         } catch {
             print("Launch Agent 安装失败: \(error)")
         }
     }
-    
+
     private func removeLaunchAgent() {
         let launchAgentsDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/LaunchAgents")
-        
+
         // 使用与安装时相同的 bundle identifier
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.example.ClaudeCodeSwitcher"
         let plistPath = launchAgentsDir.appendingPathComponent("\(bundleIdentifier).plist")
-        
+
         // 卸载 Launch Agent
         let task = Process()
         task.launchPath = "/bin/launchctl"
         task.arguments = ["unload", plistPath.path]
         task.launch()
         task.waitUntilExit()
-        
+
         // 删除 plist 文件
         do {
             try FileManager.default.removeItem(at: plistPath)
@@ -803,7 +859,7 @@ class ConfigManager: ObservableObject {
         } catch {
             print("Launch Agent 移除失败: \(error)")
         }
-        
+
         // 同时清理旧的 plist 文件（如果存在）
         let oldPlistPath = launchAgentsDir.appendingPathComponent("com.example.ClaudeCodeSwitcher.plist")
         if FileManager.default.fileExists(atPath: oldPlistPath.path) {

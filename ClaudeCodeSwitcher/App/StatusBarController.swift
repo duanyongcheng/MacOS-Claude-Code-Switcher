@@ -1,25 +1,30 @@
 import Cocoa
 import UserNotifications
+import Combine
 
 class StatusBarController: NSObject {
     private var statusItem: NSStatusItem!
     private var menu: NSMenu!
     private var configManager: ConfigManager!
+    private var proxyService: LocalProxyService!
     private var settingsWindowController: SettingsWindowController?
     private var balanceStatus: BalanceMenuStatus = .idle
     private let balanceService = BalanceService()
     private var collapsedGroups: Set<String> = []
-    
+    private var proxyServiceCancellables: Set<AnyCancellable> = []
+
     override init() {
         super.init()
         print("StatusBarController init 开始")
         configManager = ConfigManager.shared
+        proxyService = LocalProxyService.shared
         print("ConfigManager 获取成功")
         setupStatusBar()
         print("setupStatusBar 完成")
         setupMenu()
         print("setupMenu 完成")
         observeConfigChanges()
+        observeProxyService()
         print("observeConfigChanges 完成")
         requestNotificationPermission()
         fetchCurrentBalance()
@@ -29,15 +34,15 @@ class StatusBarController: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             self.rebuildMenu()
         }
-        
+
         print("StatusBarController init 完成")
     }
-    
+
     private func setupStatusBar() {
         print("setupStatusBar 被调用")
         statusItem = NSStatusBar.system.statusItem(withLength: 20)  // 设置稍宽一点的固定宽度
         print("statusItem 创建成功")
-        
+
         if let button = statusItem.button {
             print("获取到 statusItem.button")
             // 使用自定义图标 ccw.png
@@ -50,7 +55,7 @@ class StatusBarController: NSObject {
                           operation: .sourceOver,
                           fraction: 1.0)
                 resizedImage.unlockFocus()
-                
+
                 button.image = resizedImage
                 button.image?.isTemplate = true
                 print("设置自定义图标: ccw.png 成功 (30x30)")
@@ -64,7 +69,7 @@ class StatusBarController: NSObject {
                           operation: .sourceOver,
                           fraction: 1.0)
                 resizedImage.unlockFocus()
-                
+
                 button.image = resizedImage
                 button.image?.isTemplate = true
                 print("从 bundle 路径加载图标: ccw.png 成功 (30x30)")
@@ -81,16 +86,16 @@ class StatusBarController: NSObject {
             print("错误: 无法获取 statusItem.button")
         }
     }
-    
+
     private func setupMenu() {
         menu = NSMenu()
         statusItem.menu = menu
         rebuildMenu()
     }
-    
+
     private func rebuildMenu() {
         menu.removeAllItems()
-        
+
         // 添加标题
         let titleItem = NSMenuItem(title: "Claude Code Switcher", action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
@@ -125,6 +130,32 @@ class StatusBarController: NSObject {
             ]
             addressItem.attributedTitle = NSAttributedString(string: "地址: http://127.0.0.1:\(configManager.proxyModePort)", attributes: addressAttributes)
             menu.addItem(addressItem)
+
+            // 显示当前请求状态
+            if proxyService.isRequesting, let currentProvider = proxyService.currentRequestingProvider {
+                let requestingItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+                requestingItem.isEnabled = false
+                let requestingText = "⏳ 正在请求: \(currentProvider.name)"
+                let requestingAttributes: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                    .foregroundColor: NSColor.systemBlue
+                ]
+                requestingItem.attributedTitle = NSAttributedString(string: requestingText, attributes: requestingAttributes)
+                menu.addItem(requestingItem)
+            } else if let lastProvider = proxyService.lastSuccessProvider,
+                      let lastTime = proxyService.lastSuccessTime {
+                let lastItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+                lastItem.isEnabled = false
+                let timeAgo = formatTimeAgo(lastTime)
+                let lastText = "✓ 上次: \(lastProvider.name) (\(timeAgo))"
+                let lastAttributes: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 11),
+                    .foregroundColor: NSColor.systemGreen
+                ]
+                lastItem.attributedTitle = NSAttributedString(string: lastText, attributes: lastAttributes)
+                menu.addItem(lastItem)
+            }
+
             menu.addItem(NSMenuItem.separator())
         }
 
@@ -139,7 +170,7 @@ class StatusBarController: NSObject {
             ]
             currentHeaderItem.attributedTitle = NSAttributedString(string: "当前配置", attributes: headerAttributes)
             menu.addItem(currentHeaderItem)
-            
+
             let currentItem = NSMenuItem(title: "  ✓ \(current.name)", action: nil, keyEquivalent: "")
             currentItem.isEnabled = false
             let currentAttributes: [NSAttributedString.Key: Any] = [
@@ -149,7 +180,7 @@ class StatusBarController: NSObject {
             currentItem.attributedTitle = NSAttributedString(string: "  ✓ \(current.name)", attributes: currentAttributes)
             menu.addItem(currentItem)
         }
-        
+
         // 添加余额信息（内联刷新图标）
         let balanceTitle = balanceStatus.menuTitle(for: currentProvider)
         let balanceItem = NSMenuItem(title: balanceTitle, action: #selector(refreshBalanceFromMenu), keyEquivalent: "")
@@ -165,7 +196,7 @@ class StatusBarController: NSObject {
         balanceItem.attributedTitle = attributed
         balanceItem.toolTip = balanceStatus.tooltip(for: currentProvider)
         menu.addItem(balanceItem)
-        
+
         if let provider = currentProvider {
             let urlTitle = "地址: \(provider.url)"
             let urlItem = NSMenuItem(title: urlTitle, action: nil, keyEquivalent: "")
@@ -178,7 +209,7 @@ class StatusBarController: NSObject {
             menu.addItem(urlItem)
         }
         menu.addItem(NSMenuItem.separator())
-        
+
         // 添加 API 提供商列表
         let providers = configManager.getProviders()
 
@@ -262,9 +293,9 @@ class StatusBarController: NSObject {
                 }
             }
         }
-        
+
         menu.addItem(NSMenuItem.separator())
-        
+
         // 添加操作区域
         let actionsHeaderItem = NSMenuItem(title: "操作", action: nil, keyEquivalent: "")
         actionsHeaderItem.isEnabled = false
@@ -274,36 +305,36 @@ class StatusBarController: NSObject {
         ]
         actionsHeaderItem.attributedTitle = NSAttributedString(string: "操作", attributes: headerAttributes)
         menu.addItem(actionsHeaderItem)
-        
+
         // 添加设置菜单项
         let settingsItem = NSMenuItem(title: "  ⚙️  设置...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         settingsItem.toolTip = "打开设置窗口管理 API 配置"
         menu.addItem(settingsItem)
-        
+
         // 添加关于菜单项
         let aboutItem = NSMenuItem(title: "  ℹ️  关于", action: #selector(showAbout), keyEquivalent: "")
         aboutItem.target = self
         aboutItem.toolTip = "关于 Claude Code Switcher"
         menu.addItem(aboutItem)
-        
+
         menu.addItem(NSMenuItem.separator())
-        
+
         // 添加退出菜单项
         let quitItem = NSMenuItem(title: "  退出", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         quitItem.toolTip = "退出 Claude Code Switcher"
         menu.addItem(quitItem)
     }
-    
+
     func updateBalanceStatus(_ status: BalanceMenuStatus) {
         balanceStatus = status
         rebuildMenu()
     }
-    
+
     @objc private func selectProvider(_ sender: NSMenuItem) {
         guard let provider = sender.representedObject as? APIProvider else { return }
-        
+
         if provider.isValid {
             configManager.setCurrentProvider(provider)
             balanceStatus = .idle
@@ -314,7 +345,7 @@ class StatusBarController: NSObject {
             showNotification(title: "请先配置 \(provider.name) 的 API 密钥", subtitle: "点击设置菜单进行配置")
         }
     }
-    
+
     @objc private func openSettings() {
         if settingsWindowController == nil {
             settingsWindowController = SettingsWindowController()
@@ -322,7 +353,7 @@ class StatusBarController: NSObject {
         settingsWindowController?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
-    
+
     @objc private func showAbout() {
         let alert = NSAlert()
         alert.messageText = "关于 Claude Code Switcher"
@@ -344,7 +375,7 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
         alert.alertStyle = .informational
         alert.addButton(withTitle: "访问仓库")
         alert.addButton(withTitle: "确定")
-        
+
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
             // 打开 GitHub 仓库
@@ -353,11 +384,11 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
             }
         }
     }
-    
+
     @objc private func quit() {
         NSApplication.shared.terminate(nil)
     }
-    
+
     private func observeConfigChanges() {
         NotificationCenter.default.addObserver(
             self,
@@ -365,7 +396,7 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
             name: .configDidChange,
             object: nil
         )
-        
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(balanceDidUpdate(_:)),
@@ -373,11 +404,38 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
             object: nil
         )
     }
-    
+
     @objc private func configDidChange() {
         balanceStatus = .idle
         rebuildMenu()
         fetchCurrentBalance()
+    }
+
+    private func observeProxyService() {
+        proxyService.$isRequesting
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.rebuildMenu()
+            }
+            .store(in: &proxyServiceCancellables)
+
+        proxyService.$lastSuccessProvider
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.rebuildMenu()
+            }
+            .store(in: &proxyServiceCancellables)
+    }
+
+    private func formatTimeAgo(_ date: Date) -> String {
+        let seconds = Int(-date.timeIntervalSinceNow)
+        if seconds < 60 {
+            return "\(seconds)秒前"
+        } else if seconds < 3600 {
+            return "\(seconds / 60)分钟前"
+        } else {
+            return "\(seconds / 3600)小时前"
+        }
     }
 
     @objc private func toggleGroup(_ sender: NSMenuItem) {
@@ -423,39 +481,39 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
               let providerIdStr = userInfo["providerId"] as? String,
               let providerId = UUID(uuidString: providerIdStr)
         else { return }
-        
+
         // 仅当更新的是当前配置时，刷新状态栏余额
         if providerId != configManager.currentProvider?.id {
             return
         }
-        
+
         if let error = userInfo["error"] as? String {
             updateBalanceStatus(.failure(message: error))
             return
         }
-        
+
         if let dollars = userInfo["dollars"] as? Double {
             updateBalanceStatus(.success(amount: dollars, currency: "$"))
         }
     }
-    
+
     @objc private func refreshBalanceFromMenu() {
         fetchCurrentBalance()
-        
+
         // 尝试在点击后重新打开菜单，避免菜单被关闭
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.statusItem.button?.performClick(nil)
         }
     }
-    
+
     private func fetchCurrentBalance() {
         guard let provider = configManager.currentProvider, provider.isValid else {
             updateBalanceStatus(.failure(message: "请选择有效配置"))
             return
         }
-        
+
         updateBalanceStatus(.loading)
-        
+
         let tokensPerDollar = 500_000.0
         balanceService.fetchBalance(for: provider) { [weak self] result in
             DispatchQueue.main.async {
@@ -470,7 +528,7 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
             }
         }
     }
-    
+
     private func requestNotificationPermission() {
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
@@ -479,7 +537,7 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
             }
         }
     }
-    
+
     private func showNotification(title: String, subtitle: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
@@ -487,13 +545,13 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
             content.subtitle = subtitle
         }
         content.sound = .default
-        
+
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,
             content: content,
             trigger: nil
         )
-        
+
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
                 print("发送通知失败: \(error)")
@@ -507,7 +565,7 @@ enum BalanceMenuStatus {
     case loading
     case success(amount: Double, currency: String)
     case failure(message: String)
-    
+
     func menuTitle(for provider: APIProvider?) -> String {
         switch self {
         case .idle:
@@ -522,7 +580,7 @@ enum BalanceMenuStatus {
             return "⚠️ 余额：--"
         }
     }
-    
+
     func inlineText(for provider: APIProvider?) -> String? {
         guard provider != nil else { return nil }
 
@@ -538,7 +596,7 @@ enum BalanceMenuStatus {
             return "⚠️"
         }
     }
-    
+
     var menuAttributes: [NSAttributedString.Key: Any] {
         var color: NSColor = .secondaryLabelColor
         switch self {
@@ -551,13 +609,13 @@ enum BalanceMenuStatus {
         case .idle:
             color = .secondaryLabelColor
         }
-        
+
         return [
             .font: NSFont.systemFont(ofSize: 12, weight: .medium),
             .foregroundColor: color
         ]
     }
-    
+
     func tooltip(for provider: APIProvider?) -> String {
         switch self {
         case .idle:
