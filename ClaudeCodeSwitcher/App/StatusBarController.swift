@@ -8,6 +8,7 @@ class StatusBarController: NSObject {
     private var settingsWindowController: SettingsWindowController?
     private var balanceStatus: BalanceMenuStatus = .idle
     private let balanceService = BalanceService()
+    private var collapsedGroups: Set<String> = []
     
     override init() {
         super.init()
@@ -22,7 +23,8 @@ class StatusBarController: NSObject {
         print("observeConfigChanges 完成")
         requestNotificationPermission()
         fetchCurrentBalance()
-        
+        loadCollapsedGroups()
+
         // 延迟重建菜单，确保配置已加载
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             self.rebuildMenu()
@@ -136,7 +138,7 @@ class StatusBarController: NSObject {
         let attributed = NSMutableAttributedString(string: balanceTitle + "   ", attributes: balanceAttributes)
         attributed.append(NSAttributedString(string: "🔄", attributes: iconAttributes))
         balanceItem.attributedTitle = attributed
-        balanceItem.toolTip = "点击刷新余额"
+        balanceItem.toolTip = balanceStatus.tooltip(for: currentProvider)
         menu.addItem(balanceItem)
         
         if let provider = currentProvider {
@@ -178,14 +180,22 @@ class StatusBarController: NSObject {
 
             for item in groupedData {
                 if let group = item.group {
-                    let groupItem = NSMenuItem(title: group.name, action: nil, keyEquivalent: "")
-                    groupItem.isEnabled = false
+                    let isCollapsed = collapsedGroups.contains(group.name)
+                    let arrow = isCollapsed ? "▸" : "▾"
+                    let groupItem = NSMenuItem(title: group.name, action: #selector(toggleGroup(_:)), keyEquivalent: "")
+                    groupItem.target = self
+                    groupItem.representedObject = group.name
                     let groupAttributes: [NSAttributedString.Key: Any] = [
                         .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
                         .foregroundColor: NSColor.tertiaryLabelColor
                     ]
-                    groupItem.attributedTitle = NSAttributedString(string: "  ▸ \(group.name)", attributes: groupAttributes)
+                    groupItem.attributedTitle = NSAttributedString(string: "  \(arrow) \(group.name)", attributes: groupAttributes)
+                    groupItem.toolTip = isCollapsed ? "点击展开" : "点击折叠"
                     menu.addItem(groupItem)
+
+                    if isCollapsed {
+                        continue
+                    }
                 }
 
                 for provider in item.providers {
@@ -195,6 +205,7 @@ class StatusBarController: NSObject {
 
                     if provider.id == currentProvider?.id {
                         title = indent + "● " + title
+                        attributes[.font] = NSFont.systemFont(ofSize: 13, weight: .semibold)
                         attributes[.foregroundColor] = NSColor.systemBlue
 
                         if let balanceInline = balanceStatus.inlineText(for: provider) {
@@ -343,6 +354,34 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
         rebuildMenu()
         fetchCurrentBalance()
     }
+
+    @objc private func toggleGroup(_ sender: NSMenuItem) {
+        guard let groupName = sender.representedObject as? String else { return }
+
+        if collapsedGroups.contains(groupName) {
+            collapsedGroups.remove(groupName)
+        } else {
+            collapsedGroups.insert(groupName)
+        }
+
+        saveCollapsedGroups()
+        rebuildMenu()
+
+        // 保持菜单打开
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.statusItem.button?.performClick(nil)
+        }
+    }
+
+    private func loadCollapsedGroups() {
+        if let saved = UserDefaults.standard.stringArray(forKey: "collapsedGroups") {
+            collapsedGroups = Set(saved)
+        }
+    }
+
+    private func saveCollapsedGroups() {
+        UserDefaults.standard.set(Array(collapsedGroups), forKey: "collapsedGroups")
+    }
     
     @objc private func balanceDidUpdate(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
@@ -445,23 +484,23 @@ enum BalanceMenuStatus {
             let amountText = "\(currency)\(String(format: "%.2f", amount))"
             return "\(prefix)余额：\(amountText)"
         case .failure:
-            return "⚠️ 余额：获取失败"
+            return "⚠️ 余额：--"
         }
     }
     
     func inlineText(for provider: APIProvider?) -> String? {
         guard provider != nil else { return nil }
-        
+
         switch self {
         case .idle:
-            return "余额未查"
+            return nil
         case .loading:
-            return "余额查询中"
+            return "查询中..."
         case .success(let amount, let currency):
             let amountText = "\(currency)\(String(format: "%.2f", amount))"
-            return "余额 \(amountText)"
+            return amountText
         case .failure:
-            return "余额失败"
+            return "⚠️"
         }
     }
     
@@ -484,16 +523,16 @@ enum BalanceMenuStatus {
         ]
     }
     
-    func tooltip(for provider: APIProvider?) -> String? {
+    func tooltip(for provider: APIProvider?) -> String {
         switch self {
         case .idle:
-            return provider == nil ? "选择配置后可查询余额" : "尚未查询余额"
+            return provider == nil ? "选择配置后可查询余额" : "点击刷新余额"
         case .loading:
             return "正在查询余额..."
         case .success(let amount, _):
-            return amount < 5.0 ? "余额低于 $5，建议尽快充值" : "余额状态正常"
+            return amount < 5.0 ? "余额低于 $5，建议尽快充值\n点击刷新" : "余额状态正常\n点击刷新"
         case .failure(let message):
-            return message
+            return "获取失败：\(message)\n点击重试"
         }
     }
 }
