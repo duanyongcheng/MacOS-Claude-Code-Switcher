@@ -1,34 +1,73 @@
 import Foundation
 import OSLog
 
+// MARK: - Balance Result 余额结果
+
+/// 余额查询结果
+/// Balance query result
 struct BalanceResult {
+    /// 可用 Token 数量
+    /// Available tokens count
     let availableTokens: Int
+
+    /// 总授予 Token 数量
+    /// Total granted tokens
     let totalGranted: Int?
+
+    /// 已使用 Token 数量
+    /// Total used tokens
     let totalUsed: Int?
 }
 
 // MARK: - URLSessionTaskDelegate
+
 extension BalanceService: URLSessionTaskDelegate {
+    /// 处理 HTTP 重定向，保留 Authorization 头
+    /// Handle HTTP redirects while preserving Authorization header
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         var newRequest = request
-        
+
         // 保留原始 Authorization 头，避免重定向后被移除导致 401
+        // Preserve original Authorization header to avoid 401 after redirect
         if let auth = task.originalRequest?.value(forHTTPHeaderField: "Authorization") {
             newRequest.setValue(auth, forHTTPHeaderField: "Authorization")
         }
-        
+
         completionHandler(newRequest)
     }
 }
 
+// MARK: - Balance Service Error 余额服务错误
+
+/// 余额服务错误类型
+/// Balance service error types
 enum BalanceServiceError: LocalizedError {
+    /// 无效的 URL
+    /// Invalid URL
     case invalidURL(String?)
+
+    /// API 密钥缺失
+    /// Missing API key
     case missingAPIKey
+
+    /// 传输错误
+    /// Transport error
     case transport(Error)
+
+    /// HTTP 错误状态码
+    /// Bad HTTP status code
     case badStatus(Int, String?, String?)
+
+    /// 解码失败
+    /// Decoding failure
     case decoding(String?)
+
+    /// 空数据
+    /// Empty data
     case emptyData
-    
+
+    /// 错误描述信息
+    /// Error description message
     var errorDescription: String? {
         switch self {
         case .invalidURL(let raw):
@@ -56,21 +95,38 @@ enum BalanceServiceError: LocalizedError {
     }
 }
 
+// MARK: - Balance Service 余额服务
+
+/// 余额查询服务
+/// Service for querying API provider balance
 final class BalanceService: NSObject {
+    // MARK: - Properties
+
+    /// 日志记录器
+    /// Logger instance
     private let logger = Logger(subsystem: "ClaudeCodeSwitcher", category: "BalanceService")
+
+    /// URL 会话
+    /// URL session with custom configuration
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 30
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
-    
+
+    // MARK: - Private Models
+
+    /// Token 使用量响应数据
+    /// Token usage response data
     private struct TokenUsageResponse: Codable {
         let code: Bool?
         let message: String?
         let data: TokenUsageData?
     }
-    
+
+    /// Token 使用量详细数据
+    /// Token usage detailed data
     private struct TokenUsageData: Codable {
         let totalGranted: Int?
         let totalUsed: Int?
@@ -82,7 +138,14 @@ final class BalanceService: NSObject {
             case totalAvailable = "total_available"
         }
     }
-    
+
+    // MARK: - Public Methods
+
+    /// 查询提供商余额
+    /// Fetch balance for provider
+    /// - Parameters:
+    ///   - provider: API 提供商 / API provider
+    ///   - completion: 完成回调 / Completion callback
     func fetchBalance(for provider: APIProvider, completion: @escaping (Result<BalanceResult, BalanceServiceError>) -> Void) {
         let builtURL = buildBalanceURL(from: provider.url)
         guard let url = builtURL else {
@@ -161,7 +224,13 @@ final class BalanceService: NSObject {
         
         task.resume()
     }
-    
+
+    // MARK: - Private Methods
+
+    /// 构建余额查询 URL
+    /// Build balance query URL from base URL
+    /// - Parameter base: 基础 URL / Base URL
+    /// - Returns: 完整的余额查询 URL / Complete balance query URL
     private func buildBalanceURL(from base: String) -> URL? {
         // 清理常见的空白字符（包含中文空格）
         let trimSet = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{00a0}\u{3000}"))

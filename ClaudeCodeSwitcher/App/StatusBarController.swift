@@ -2,16 +2,50 @@ import Cocoa
 import UserNotifications
 import Combine
 
+// MARK: - Status Bar Controller 状态栏控制器
+
+/// 状态栏控制器
+/// Manages status bar menu and provider switching
 class StatusBarController: NSObject {
+    // MARK: - Properties
+
+    /// 状态栏项
+    /// Status bar item
     private var statusItem: NSStatusItem!
+
+    /// 菜单
+    /// Menu instance
     private var menu: NSMenu!
+
+    /// 配置管理器
+    /// Configuration manager
     private var configManager: ConfigManager!
+
+    /// 代理服务
+    /// Proxy service
     private var proxyService: LocalProxyService!
+
+    /// 设置窗口控制器
+    /// Settings window controller
     private var settingsWindowController: SettingsWindowController?
+
+    /// 余额状态
+    /// Balance status
     private var balanceStatus: BalanceMenuStatus = .idle
+
+    /// 余额服务
+    /// Balance service
     private let balanceService = BalanceService()
+
+    /// 折叠的分组集合
+    /// Collapsed groups set
     private var collapsedGroups: Set<String> = []
+
+    /// 代理服务订阅集合
+    /// Proxy service subscriptions
     private var proxyServiceCancellables: Set<AnyCancellable> = []
+
+    // MARK: - Initialization
 
     override init() {
         super.init()
@@ -38,6 +72,10 @@ class StatusBarController: NSObject {
         print("StatusBarController init 完成")
     }
 
+    // MARK: - Setup Methods
+
+    /// 设置状态栏
+    /// Setup status bar
     private func setupStatusBar() {
         print("setupStatusBar 被调用")
         statusItem = NSStatusBar.system.statusItem(withLength: 20)  // 设置稍宽一点的固定宽度
@@ -87,12 +125,16 @@ class StatusBarController: NSObject {
         }
     }
 
+    /// 设置菜单
+    /// Setup menu
     private func setupMenu() {
         menu = NSMenu()
         statusItem.menu = menu
         rebuildMenu()
     }
 
+    /// 重建菜单
+    /// Rebuild menu with current configuration
     private func rebuildMenu() {
         menu.removeAllItems()
 
@@ -275,10 +317,31 @@ class StatusBarController: NSObject {
                         attributes[.foregroundColor] = NSColor.tertiaryLabelColor
                     }
 
+                    let attributedTitle = NSMutableAttributedString(string: title, attributes: attributes)
+
+                    if configManager.isInProxyPool(provider) {
+                        let penalty = proxyService.getPenalty(for: provider.id)
+                        let effectivePriority = provider.priority + penalty
+
+                        // 显示格式: [P:0 L:10] (Priority: 0, Level/Effective: 10)
+                        // 使用较小的字体和次要颜色，使其不那么显眼
+                        let statusText = " [P:\(provider.priority) L:\(effectivePriority)]"
+                        let statusAttributes: [NSAttributedString.Key: Any] = [
+                            .font: NSFont.systemFont(ofSize: 11),
+                            .foregroundColor: NSColor.secondaryLabelColor
+                        ]
+                        attributedTitle.append(NSAttributedString(string: statusText, attributes: statusAttributes))
+
+                        // 如果有惩罚，添加额外提示
+                        if penalty > 0 {
+                            attributedTitle.append(NSAttributedString(string: " ⚠️", attributes: [.font: NSFont.systemFont(ofSize: 11)]))
+                        }
+                    }
+
                     let menuItem = NSMenuItem(title: title, action: #selector(selectProvider(_:)), keyEquivalent: "")
                     menuItem.target = self
                     menuItem.representedObject = provider
-                    menuItem.attributedTitle = NSAttributedString(string: title, attributes: attributes)
+                    menuItem.attributedTitle = attributedTitle
 
                     if !provider.isValid {
                         menuItem.toolTip = "需要配置 API 密钥"
@@ -287,6 +350,15 @@ class StatusBarController: NSObject {
                         menuItem.toolTip = "当前使用的配置"
                     } else {
                         menuItem.toolTip = "点击切换到此配置"
+                    }
+
+                    // 添加优先级详情到 tooltip
+                    if configManager.isInProxyPool(provider) {
+                        let penalty = proxyService.getPenalty(for: provider.id)
+                        let effectivePriority = provider.priority + penalty
+                        let existingTooltip = menuItem.toolTip ?? ""
+                        let details = "\n\n📊 调度信息:\n基础优先级: \(provider.priority)\n惩罚值: \(penalty)\n当前调度级别: \(effectivePriority)\n(级别数值越小，调用优先级越高)"
+                        menuItem.toolTip = existingTooltip + details
                     }
 
                     menu.addItem(menuItem)
@@ -327,11 +399,17 @@ class StatusBarController: NSObject {
         menu.addItem(quitItem)
     }
 
+    /// 更新余额状态
+    /// Update balance status
     func updateBalanceStatus(_ status: BalanceMenuStatus) {
         balanceStatus = status
         rebuildMenu()
     }
 
+    // MARK: - Actions
+
+    /// 选择提供商
+    /// Select provider
     @objc private func selectProvider(_ sender: NSMenuItem) {
         guard let provider = sender.representedObject as? APIProvider else { return }
 
@@ -346,6 +424,8 @@ class StatusBarController: NSObject {
         }
     }
 
+    /// 打开设置窗口
+    /// Open settings window
     @objc private func openSettings() {
         if settingsWindowController == nil {
             settingsWindowController = SettingsWindowController()
@@ -354,6 +434,8 @@ class StatusBarController: NSObject {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// 显示关于窗口
+    /// Show about window
     @objc private func showAbout() {
         let alert = NSAlert()
         alert.messageText = "关于 Claude Code Switcher"
@@ -385,10 +467,16 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
         }
     }
 
+    /// 退出应用
+    /// Quit application
     @objc private func quit() {
         NSApplication.shared.terminate(nil)
     }
 
+    // MARK: - Observers
+
+    /// 监听配置变更
+    /// Observe configuration changes
     private func observeConfigChanges() {
         NotificationCenter.default.addObserver(
             self,
@@ -405,12 +493,16 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
         )
     }
 
+    /// 配置变更回调
+    /// Configuration changed callback
     @objc private func configDidChange() {
         balanceStatus = .idle
         rebuildMenu()
         fetchCurrentBalance()
     }
 
+    /// 监听代理服务状态
+    /// Observe proxy service status
     private func observeProxyService() {
         proxyService.$isRequesting
             .receive(on: DispatchQueue.main)
@@ -427,6 +519,10 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
             .store(in: &proxyServiceCancellables)
     }
 
+    /// 格式化时间间隔
+    /// Format time ago
+    /// - Parameter date: 日期 / Date
+    /// - Returns: 格式化的时间描述 / Formatted time description
     private func formatTimeAgo(_ date: Date) -> String {
         let seconds = Int(-date.timeIntervalSinceNow)
         if seconds < 60 {
@@ -438,6 +534,8 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
         }
     }
 
+    /// 切换分组折叠状态
+    /// Toggle group collapse state
     @objc private func toggleGroup(_ sender: NSMenuItem) {
         guard let groupName = sender.representedObject as? String else { return }
 
@@ -456,16 +554,22 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
         }
     }
 
+    /// 加载折叠的分组列表
+    /// Load collapsed groups list
     private func loadCollapsedGroups() {
         if let saved = UserDefaults.standard.stringArray(forKey: "collapsedGroups") {
             collapsedGroups = Set(saved)
         }
     }
 
+    /// 保存折叠的分组列表
+    /// Save collapsed groups list
     private func saveCollapsedGroups() {
         UserDefaults.standard.set(Array(collapsedGroups), forKey: "collapsedGroups")
     }
 
+    /// 切换代理模式
+    /// Toggle proxy mode
     @objc private func toggleProxyMode() {
         let newState = !configManager.proxyModeEnabled
         configManager.setProxyModeEnabled(newState)
@@ -476,6 +580,8 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
         }
     }
 
+    /// 余额更新回调
+    /// Balance update callback
     @objc private func balanceDidUpdate(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
               let providerIdStr = userInfo["providerId"] as? String,
@@ -497,15 +603,20 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
         }
     }
 
+    /// 从菜单刷新余额
+    /// Refresh balance from menu
     @objc private func refreshBalanceFromMenu() {
         fetchCurrentBalance()
 
         // 尝试在点击后重新打开菜单，避免菜单被关闭
+        // Try to reopen menu after click to avoid menu closing
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.statusItem.button?.performClick(nil)
         }
     }
 
+    /// 获取当前提供商余额
+    /// Fetch current provider balance
     private func fetchCurrentBalance() {
         guard let provider = configManager.currentProvider, provider.isValid else {
             updateBalanceStatus(.failure(message: "请选择有效配置"))
@@ -529,6 +640,10 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
         }
     }
 
+    // MARK: - Notifications
+
+    /// 请求通知权限
+    /// Request notification permission
     private func requestNotificationPermission() {
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
@@ -538,6 +653,11 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
         }
     }
 
+    /// 显示通知
+    /// Show notification
+    /// - Parameters:
+    ///   - title: 标题 / Title
+    ///   - subtitle: 副标题 / Subtitle
     private func showNotification(title: String, subtitle: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
@@ -560,12 +680,29 @@ https://github.com/duanyongcheng/MacOS-Claude-Code-Switcher
     }
 }
 
+// MARK: - Balance Menu Status 余额菜单状态
+
+/// 菜单中的余额显示状态
+/// Balance display status in menu
 enum BalanceMenuStatus {
+    /// 空闲状态
+    /// Idle state
     case idle
+
+    /// 加载中
+    /// Loading
     case loading
+
+    /// 成功
+    /// Success with amount and currency
     case success(amount: Double, currency: String)
+
+    /// 失败
+    /// Failure with error message
     case failure(message: String)
 
+    /// 菜单标题
+    /// Menu title
     func menuTitle(for provider: APIProvider?) -> String {
         switch self {
         case .idle:
@@ -581,6 +718,8 @@ enum BalanceMenuStatus {
         }
     }
 
+    /// 内联文本（显示在提供商名称旁边）
+    /// Inline text for display next to provider name
     func inlineText(for provider: APIProvider?) -> String? {
         guard provider != nil else { return nil }
 
@@ -597,6 +736,8 @@ enum BalanceMenuStatus {
         }
     }
 
+    /// 菜单属性（字体、颜色等）
+    /// Menu attributes (font, color, etc.)
     var menuAttributes: [NSAttributedString.Key: Any] {
         var color: NSColor = .secondaryLabelColor
         switch self {
@@ -616,6 +757,8 @@ enum BalanceMenuStatus {
         ]
     }
 
+    /// 工具提示文本
+    /// Tooltip text
     func tooltip(for provider: APIProvider?) -> String {
         switch self {
         case .idle:

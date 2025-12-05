@@ -12,6 +12,8 @@ A lightweight macOS status bar application for managing and quickly switching be
 ## ✨ Features
 
 - 🔄 **Quick Provider Switching** - Switch between different API providers with a single click from the status bar
+- 🔀 **Local Proxy Mode** - Built-in HTTP proxy with automatic failover across multiple providers
+- 📦 **Provider Grouping** - Organize providers into collapsible groups with priority sorting
 - 💰 **Balance Checking** - View real-time API balance with available tokens, total granted, and usage stats
 - 🎨 **Custom Provider Icons** - Set unique icons for each API provider for easy visual identification
 - 📊 **Token Usage Statistics** - Track and visualize API token usage for the last 3 days with detailed breakdowns
@@ -87,7 +89,24 @@ open ClaudeCodeSwitcher.xcodeproj
 
 ### Features in Detail
 
-#### Balance Checking (New!)
+#### Local Proxy Mode (New!)
+- Enable proxy mode to route all Claude Code requests through a local HTTP proxy
+- Configure a **Proxy Pool** with multiple providers for automatic failover
+- Health-based provider selection with penalty system:
+  - Failed requests increase provider penalty (+10)
+  - Successful requests slowly recover penalty (-1)
+  - Providers sorted by (priority - penalty) score
+- Automatic retry on errors: 401, 403, 429, and 5xx status codes
+- Real-time status display: current provider, last success time
+- Configurable port (default: 32000) and request timeout (10-600 seconds)
+
+#### Provider Grouping
+- Create custom groups to organize your providers
+- Set priority for groups and providers within groups
+- Collapsible groups in status bar menu for cleaner navigation
+- Built-in "Proxy Pool" group for failover providers
+
+#### Balance Checking
 - Click "Refresh Balance" button in provider settings
 - View real-time API balance information:
   - Available tokens remaining
@@ -129,6 +148,7 @@ MacOS-Claude-Code-Switcher/
 ### Key Technologies
 - **SwiftUI** - Modern declarative UI framework
 - **AppKit** - Status bar integration (manual NSApplication lifecycle)
+- **Network** - NWListener for local TCP proxy server
 - **Combine** - Reactive programming for state management
 - **JSON File Storage** - Modern configuration management at `~/.config/ccs/claude-switch.json`
 - **Automatic Migration** - Seamless transition from UserDefaults to JSON
@@ -188,12 +208,26 @@ The app stores all your API providers, settings, and preferences in a JSON file:
       "key": "api-key-here",
       "largeModel": "model-name",
       "smallModel": "small-model-name",
-      "proxyHost": "optional-proxy-url",
-      "proxyPort": "optional-proxy-port"
+      "groupName": "optional-group-name",
+      "priority": 0
+    }
+  ],
+  "providerGroups": [
+    {
+      "id": "UUID",
+      "name": "Group Name",
+      "priority": 0,
+      "isBuiltin": false,
+      "providerRefs": []
     }
   ],
   "currentProvider": {...},
-  "autoUpdate": true
+  "autoUpdate": true,
+  "proxyHost": "",
+  "proxyPort": "",
+  "proxyModeEnabled": false,
+  "proxyModePort": 32000,
+  "proxyRequestTimeout": 120
 }
 ```
 
@@ -227,6 +261,13 @@ The app stores all your API providers, settings, and preferences in a JSON file:
 - Check `~/.config/ccs/claude-switch.json` exists and contains your providers
 - Check file permissions (should be 600 for config files)
 - Restart both Claude Code Switcher and Claude Code
+
+### Proxy mode not working
+- Ensure proxy mode is enabled in settings
+- Check that the proxy pool has at least one provider
+- Verify the proxy port (default: 32000) is not in use by another application
+- Check console logs for `[Proxy]` messages for debugging
+- If all providers fail, check their API keys and URLs individually
 
 ### Configuration file not created
 - The app only creates config files when you add providers or change settings

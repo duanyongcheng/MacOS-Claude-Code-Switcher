@@ -2,22 +2,60 @@ import Foundation
 import Network
 import Combine
 
+// MARK: - Local Proxy Service 本地代理服务
+
+/// 本地 HTTP 代理服务
+/// Provides local HTTP proxy with automatic failover across multiple providers
 class LocalProxyService: ObservableObject {
+    // MARK: - Singleton
+
     static let shared = LocalProxyService()
 
+    // MARK: - Properties
+
+    /// 网络监听器
+    /// Network listener
     private var listener: NWListener?
+
+    /// 是否正在运行
+    /// Whether service is running
     private var isRunning = false
+
+    /// 调度队列
+    /// Dispatch queue for proxy operations
     private let queue = DispatchQueue(label: "com.ccs.proxy", qos: .userInitiated)
+
+    /// URL 会话
+    /// URL session for forwarding requests
     private let session: URLSession
 
+    // MARK: - Provider Health Tracking 提供商健康追踪
+
+    /// 惩罚值锁（线程安全）
+    /// Penalty lock for thread safety
+    private let penaltyLock = NSLock()
+
+    /// 提供商惩罚值映射表
+    /// Provider penalty map
+    private var providerPenalties: [UUID: Int] = [:]
+
     /// 当前正在请求的服务商
+    /// Currently requesting provider
     @Published var currentRequestingProvider: APIProvider?
+
     /// 最后一次成功请求的服务商
+    /// Last successful provider
     @Published var lastSuccessProvider: APIProvider?
+
     /// 最后一次成功请求的时间
+    /// Last success time
     @Published var lastSuccessTime: Date?
+
     /// 是否正在请求中
+    /// Whether currently requesting
     @Published var isRequesting: Bool = false
+
+    // MARK: - Initialization
 
     private init() {
         let config = URLSessionConfiguration.default
@@ -27,10 +65,66 @@ class LocalProxyService: ObservableObject {
         observeConfigChanges()
     }
 
+    // MARK: - Health Management 健康管理
+
+    /// 更新提供商的惩罚值
+    /// Update provider penalty value
+    /// - Parameters:
+    ///   - providerId: 提供商 ID / Provider ID
+    ///   - success: 请求是否成功 / Whether request succeeded
+    private func updatePenalty(for providerId: UUID, success: Bool) {
+        penaltyLock.lock()
+        defer { penaltyLock.unlock() }
+
+        let current = providerPenalties[providerId] ?? 0
+        if success {
+            // 成功：缓慢恢复优先级
+            // Success: slow recovery
+            if current > 0 {
+                providerPenalties[providerId] = max(0, current - AppConstants.ProxyPool.penaltyRecovery)
+            }
+        } else {
+            // 失败：快速降低优先级
+            // Failure: fast degradation
+            providerPenalties[providerId] = current + AppConstants.ProxyPool.penaltyIncrease
+            print("[Proxy] Increased penalty for provider \(providerId), new penalty: \(providerPenalties[providerId]!)")
+        }
+    }
+
+    /// 按健康度排序提供商
+    /// Sort providers by health (priority - penalty)
+    /// - Parameter providers: 提供商列表 / Provider list
+    /// - Returns: 排序后的提供商列表 / Sorted provider list
+    private func getSortedProviders(_ providers: [APIProvider]) -> [APIProvider] {
+        penaltyLock.lock()
+        let penalties = providerPenalties
+        penaltyLock.unlock()
+
+        return providers.sorted { p1, p2 in
+            let penalty1 = penalties[p1.id] ?? 0
+            let penalty2 = penalties[p2.id] ?? 0
+
+            let score1 = p1.priority - penalty1
+            let score2 = p2.priority - penalty2
+
+            // 如果分数相同，保持原有相对顺序（依靠 priority）
+            if score1 == score2 {
+                return p1.priority > p2.priority
+            }
+            return score1 > score2
+        }
+    }
+
+    /// 获取代理服务器端口
+    /// Get proxy server port
     var port: Int {
         ConfigManager.shared.proxyModePort
     }
 
+    // MARK: - Public Methods - Server Control 服务器控制
+
+    /// 启动代理服务器
+    /// Start proxy server
     func start() {
         guard !isRunning else { return }
 
@@ -65,6 +159,8 @@ class LocalProxyService: ObservableObject {
         }
     }
 
+    /// 停止代理服务器
+    /// Stop proxy server
     func stop() {
         listener?.cancel()
         listener = nil
@@ -72,6 +168,8 @@ class LocalProxyService: ObservableObject {
         print("[Proxy] Server stopped")
     }
 
+    /// 重启代理服务器
+    /// Restart proxy server
     func restart() {
         stop()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -79,6 +177,10 @@ class LocalProxyService: ObservableObject {
         }
     }
 
+    // MARK: - Private Methods - Observers 观察者
+
+    /// 监听配置变更
+    /// Observe configuration changes
     private func observeConfigChanges() {
         NotificationCenter.default.addObserver(
             self,
@@ -88,6 +190,8 @@ class LocalProxyService: ObservableObject {
         )
     }
 
+    /// 处理代理模式变更通知
+    /// Handle proxy mode change notification
     @objc private func proxyModeChanged(_ notification: Notification) {
         guard let enabled = notification.userInfo?["enabled"] as? Bool else { return }
         if enabled {
@@ -97,11 +201,20 @@ class LocalProxyService: ObservableObject {
         }
     }
 
+    // MARK: - Private Methods - Connection Handling 连接处理
+
+    /// 处理新连接
+    /// Handle new connection
     private func handleConnection(_ connection: NWConnection) {
         connection.start(queue: queue)
         receiveFullRequest(connection: connection, buffer: Data())
     }
 
+    /// 接收完整的 HTTP 请求
+    /// Receive full HTTP request
+    /// - Parameters:
+    ///   - connection: 网络连接 / Network connection
+    ///   - buffer: 数据缓冲区 / Data buffer
     private func receiveFullRequest(connection: NWConnection, buffer: Data) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             guard let self = self else {
@@ -140,6 +253,12 @@ class LocalProxyService: ObservableObject {
         }
     }
 
+    // MARK: - Private Methods - HTTP Parsing HTTP 解析
+
+    /// 解析 HTTP 请求头
+    /// Parse HTTP headers
+    /// - Parameter data: 原始数据 / Raw data
+    /// - Returns: 请求头字典和头部结束位置 / Headers dictionary and header end index
     private func parseHTTPHeaders(_ data: Data) -> (headers: [String: String], headerEndIndex: Int)? {
         guard let str = String(data: data, encoding: .utf8) else { return nil }
 
@@ -162,6 +281,8 @@ class LocalProxyService: ObservableObject {
         return (headers, headerEndIndex)
     }
 
+    /// 获取 Content-Length
+    /// Get Content-Length from headers
     private func getContentLength(from headers: [String: String]) -> Int {
         if let lengthStr = headers["content-length"], let length = Int(lengthStr) {
             return length
@@ -169,6 +290,8 @@ class LocalProxyService: ObservableObject {
         return 0
     }
 
+    /// 处理请求
+    /// Process incoming request
     private func processRequest(data: Data, connection: NWConnection) {
         let providers = ConfigManager.shared.getProxyPoolProviders()
         guard !providers.isEmpty else {
@@ -184,6 +307,25 @@ class LocalProxyService: ObservableObject {
         )
     }
 
+    /// 获取提供商的惩罚值
+    /// Get penalty value for provider
+    /// - Parameter providerId: 提供商 ID / Provider ID
+    /// - Returns: 惩罚值 / Penalty value
+    func getPenalty(for providerId: UUID) -> Int {
+        penaltyLock.lock()
+        defer { penaltyLock.unlock() }
+        return providerPenalties[providerId] ?? 0
+    }
+
+    // MARK: - Private Methods - Request Forwarding 请求转发
+
+    /// 带故障转移的请求转发
+    /// Forward request with automatic failover
+    /// - Parameters:
+    ///   - requestData: 原始请求数据 / Original request data
+    ///   - providers: 提供商列表 / Provider list
+    ///   - startIndex: 起始索引 / Start index
+    ///   - connection: 客户端连接 / Client connection
     private func forwardRequestWithFailover(
         requestData: Data,
         providers: [APIProvider],
@@ -211,6 +353,9 @@ class LocalProxyService: ObservableObject {
         forwardRequest(requestData: requestData, to: provider) { [weak self] result in
             switch result {
             case .success(let responseData):
+                // 请求成功，减少惩罚
+                self?.updatePenalty(for: provider.id, success: true)
+
                 self?.sendResponse(connection: connection, data: responseData)
                 // 请求成功后更新状态
                 DispatchQueue.main.async {
@@ -221,6 +366,10 @@ class LocalProxyService: ObservableObject {
                 }
             case .failure(let error):
                 print("[Proxy] Provider \(provider.name) failed: \(error.localizedDescription)")
+
+                // 请求失败，增加惩罚
+                self?.updatePenalty(for: provider.id, success: false)
+
                 self?.forwardRequestWithFailover(
                     requestData: requestData,
                     providers: providers,
@@ -231,6 +380,12 @@ class LocalProxyService: ObservableObject {
         }
     }
 
+    /// 转发单个请求到提供商
+    /// Forward single request to provider
+    /// - Parameters:
+    ///   - requestData: 请求数据 / Request data
+    ///   - provider: 目标提供商 / Target provider
+    ///   - completion: 完成回调 / Completion callback
     private func forwardRequest(
         requestData: Data,
         to provider: APIProvider,
@@ -315,6 +470,12 @@ class LocalProxyService: ObservableObject {
         task.resume()
     }
 
+    /// 构建目标 URL
+    /// Build target URL from base path and provider URL
+    /// - Parameters:
+    ///   - basePath: 基础路径 / Base path
+    ///   - providerURL: 提供商 URL / Provider URL
+    /// - Returns: 完整的目标 URL / Complete target URL
     private func buildTargetURL(basePath: String, providerURL: URL) -> URL? {
         var path = basePath
 
@@ -340,6 +501,10 @@ class LocalProxyService: ObservableObject {
         return URL(string: fullURLString)
     }
 
+    /// 解析 HTTP 请求
+    /// Parse HTTP request
+    /// - Parameter data: 请求数据 / Request data
+    /// - Returns: 请求方法、路径、头部和正文 / Method, path, headers and body
     private func parseHTTPRequest(_ data: Data) -> (method: String, path: String, headers: [String: String], body: Data?)? {
         // 查找 header 结束标记的字节位置
         let headerEndMarker = Data("\r\n\r\n".utf8)
@@ -381,6 +546,13 @@ class LocalProxyService: ObservableObject {
         return (method, path, headers, body)
     }
 
+    /// 构建 HTTP 响应
+    /// Build HTTP response
+    /// - Parameters:
+    ///   - statusCode: HTTP 状态码 / HTTP status code
+    ///   - headers: 响应头 / Response headers
+    ///   - body: 响应正文 / Response body
+    /// - Returns: 完整的 HTTP 响应数据 / Complete HTTP response data
     private func buildHTTPResponse(statusCode: Int, headers: [AnyHashable: Any], body: Data?) -> Data {
         let statusText = HTTPURLResponse.localizedString(forStatusCode: statusCode)
         var response = "HTTP/1.1 \(statusCode) \(statusText)\r\n"
@@ -413,6 +585,11 @@ class LocalProxyService: ObservableObject {
         return responseData
     }
 
+    /// 发送响应到客户端
+    /// Send response to client
+    /// - Parameters:
+    ///   - connection: 客户端连接 / Client connection
+    ///   - data: 响应数据 / Response data
     private func sendResponse(connection: NWConnection, data: Data) {
         connection.send(content: data, completion: .contentProcessed { error in
             if let error = error {
@@ -422,6 +599,12 @@ class LocalProxyService: ObservableObject {
         })
     }
 
+    /// 发送错误响应
+    /// Send error response to client
+    /// - Parameters:
+    ///   - connection: 客户端连接 / Client connection
+    ///   - statusCode: HTTP 状态码 / HTTP status code
+    ///   - message: 错误消息 / Error message
     private func sendErrorResponse(connection: NWConnection, statusCode: Int, message: String) {
         let body = "{\"error\": {\"message\": \"\(message)\", \"type\": \"proxy_error\"}}"
         let response = buildHTTPResponse(
@@ -433,13 +616,33 @@ class LocalProxyService: ObservableObject {
     }
 }
 
+// MARK: - Proxy Error 代理错误
+
+/// 代理服务错误类型
+/// Proxy service error types
 enum ProxyError: LocalizedError {
+    /// 无效的 HTTP 请求
+    /// Invalid HTTP request
     case invalidRequest
+
+    /// 无效的提供商 URL
+    /// Invalid provider URL
     case invalidProviderURL
+
+    /// 无效的响应
+    /// Invalid response
     case invalidResponse
+
+    /// 服务器错误
+    /// Server error with status code
     case serverError(Int)
+
+    /// 所有提供商都失败
+    /// All providers failed
     case allProvidersFailed
 
+    /// 错误描述
+    /// Error description
     var errorDescription: String? {
         switch self {
         case .invalidRequest:

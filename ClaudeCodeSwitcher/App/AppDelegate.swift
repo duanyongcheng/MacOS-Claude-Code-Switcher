@@ -1,8 +1,20 @@
 import Cocoa
 
+// MARK: - App Delegate 应用委托
+
+/// 应用程序委托
+/// Application delegate managing app lifecycle
 class AppDelegate: NSObject, NSApplicationDelegate {
+    // MARK: - Properties
+
+    /// 状态栏控制器
+    /// Status bar controller
     private var statusBarController: StatusBarController!
 
+    // MARK: - Lifecycle Methods
+
+    /// 应用启动完成
+    /// Application finished launching
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         print("applicationDidFinishLaunching 被调用")
         setupApplication()
@@ -16,21 +28,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             LocalProxyService.shared.start()
         }
     }
-    
+
+    /// 应用即将终止
+    /// Application will terminate
     func applicationWillTerminate(_ aNotification: Notification) {
         LocalProxyService.shared.stop()
     }
-    
+
+    /// 关闭最后一个窗口后是否终止应用
+    /// Whether should terminate after closing last window
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         // 即使关闭最后一个窗口也不退出应用（状态栏应用）
+        // Don't quit even when last window closed (status bar app)
         return false
     }
-    
+
+    // MARK: - Setup Methods
+
+    /// 设置应用程序
+    /// Setup application
     private func setupApplication() {
         // 隐藏 Dock 图标（仅状态栏运行）
+        // Hide Dock icon (status bar only)
         NSApp.setActivationPolicy(.accessory)
     }
-    
+
+    /// 设置菜单栏
+    /// Setup menu bar
     private func setupMenuBar() {
         // 创建主菜单
         let mainMenu = NSMenu()
@@ -69,7 +93,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         NSApp.mainMenu = mainMenu
     }
-    
+
+    // MARK: - Actions
+
+    /// 显示关于窗口
+    /// Show about window
     @objc private func showAbout() {
         let alert = NSAlert()
         alert.messageText = "关于 Claude Code Switcher"
