@@ -22,6 +22,7 @@ class ConfigManager: ObservableObject {
     @Published var proxyModeEnabled: Bool = false
     @Published var proxyModePort: Int = AppConstants.ProxyPool.defaultPort
     @Published var proxyRequestTimeout: Int = AppConstants.ProxyPool.defaultTimeout
+    @Published var apiKeyHelperEnabled: Bool = false
 
     // MARK: - Computed Properties 计算属性
 
@@ -283,6 +284,14 @@ class ConfigManager: ObservableObject {
         postConfigChangeNotification()
     }
 
+    /// 设置启用密钥辅助模式
+    /// Set API key helper enabled
+    func setApiKeyHelperEnabled(_ enabled: Bool) {
+        objectWillChange.send()
+        apiKeyHelperEnabled = enabled
+        saveAndSync()
+    }
+
     // MARK: - Public Methods - Global Settings 全局设置
 
     /// 更新全局设置
@@ -340,7 +349,8 @@ class ConfigManager: ObservableObject {
             providerGroups: providerGroups,
             proxyModeEnabled: proxyModeEnabled,
             proxyModePort: proxyModePort,
-            proxyRequestTimeout: proxyRequestTimeout
+            proxyRequestTimeout: proxyRequestTimeout,
+            apiKeyHelperEnabled: apiKeyHelperEnabled
         )
 
         persistence.saveConfig(config)
@@ -354,7 +364,8 @@ class ConfigManager: ObservableObject {
             proxyHost: proxyHost,
             proxyPort: proxyPort,
             proxyModeEnabled: proxyModeEnabled,
-            proxyModePort: proxyModePort
+            proxyModePort: proxyModePort,
+            apiKeyHelperEnabled: apiKeyHelperEnabled
         )
     }
 
@@ -380,6 +391,7 @@ class ConfigManager: ObservableObject {
             self.proxyModeEnabled = config.proxyModeEnabled
             self.proxyModePort = config.proxyModePort
             self.proxyRequestTimeout = config.proxyRequestTimeout
+            self.apiKeyHelperEnabled = config.apiKeyHelperEnabled
             ensureProxyGroupExists()
             DispatchQueue.main.async {
                 self.postConfigChangeNotification()
@@ -397,6 +409,7 @@ class ConfigManager: ObservableObject {
             self.proxyModeEnabled = false
             self.proxyModePort = AppConstants.ProxyPool.defaultPort
             self.proxyRequestTimeout = AppConstants.ProxyPool.defaultTimeout
+            self.apiKeyHelperEnabled = false
             ensureProxyGroupExists()
         }
     }

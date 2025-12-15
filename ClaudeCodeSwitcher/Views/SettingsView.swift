@@ -1100,6 +1100,28 @@ struct ProxySettingsCard: View {
 
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
+                        Text("启用密钥辅助")
+                            .font(.subheadline)
+
+                        Text("使用 apiKeyHelper 代替 ANTHROPIC_API_KEY")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    Toggle("", isOn: Binding(
+                        get: { configManager.apiKeyHelperEnabled },
+                        set: { configManager.setApiKeyHelperEnabled($0) }
+                    ))
+                    .toggleStyle(SwitchToggleStyle())
+                    .labelsHidden()
+                }
+
+                Divider()
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Text("代理池模式")
                                 .font(.subheadline)

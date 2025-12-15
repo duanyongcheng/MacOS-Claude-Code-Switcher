@@ -29,12 +29,14 @@ class ClaudeSyncService {
     ///   - proxyPort: 代理端口 / Proxy port
     ///   - proxyModeEnabled: 是否启用代理池模式 / Whether proxy mode is enabled
     ///   - proxyModePort: 代理池端口 / Proxy pool port
+    ///   - apiKeyHelperEnabled: 是否启用密钥辅助模式 / Whether API key helper is enabled
     func syncToClaudeConfig(
         provider: APIProvider?,
         proxyHost: String,
         proxyPort: String,
         proxyModeEnabled: Bool,
-        proxyModePort: Int
+        proxyModePort: Int,
+        apiKeyHelperEnabled: Bool = false
     ) {
         do {
             // 确保 .claude 目录存在
@@ -56,7 +58,8 @@ class ClaudeSyncService {
                 proxyHost: proxyHost,
                 proxyPort: proxyPort,
                 proxyModeEnabled: proxyModeEnabled,
-                proxyModePort: proxyModePort
+                proxyModePort: proxyModePort,
+                apiKeyHelperEnabled: apiKeyHelperEnabled
             )
 
             // 写入配置文件
@@ -118,21 +121,34 @@ class ClaudeSyncService {
         proxyHost: String,
         proxyPort: String,
         proxyModeEnabled: Bool,
-        proxyModePort: Int
+        proxyModePort: Int,
+        apiKeyHelperEnabled: Bool
     ) {
         var env = config["env"] as? [String: Any] ?? [:]
 
         if proxyModeEnabled {
             // 代理池模式：使用本地代理
             // Proxy pool mode: use local proxy
-            env["ANTHROPIC_API_KEY"] = AppConstants.API.proxyModeKey
             env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:\(proxyModePort)"
             env.removeValue(forKey: "ANTHROPIC_MODEL")
             env.removeValue(forKey: "ANTHROPIC_SMALL_FAST_MODEL")
+
+            if apiKeyHelperEnabled {
+                // 密钥辅助模式：使用 apiKeyHelper 和 ANTHROPIC_AUTH_TOKEN
+                // API key helper mode: use apiKeyHelper and ANTHROPIC_AUTH_TOKEN
+                env.removeValue(forKey: "ANTHROPIC_API_KEY")
+                env["ANTHROPIC_AUTH_TOKEN"] = AppConstants.API.proxyModeKey
+                config["apiKeyHelper"] = "echo '\(AppConstants.API.proxyModeKey)'"
+            } else {
+                // 传统模式：使用 ANTHROPIC_API_KEY
+                // Traditional mode: use ANTHROPIC_API_KEY
+                env["ANTHROPIC_API_KEY"] = AppConstants.API.proxyModeKey
+                env.removeValue(forKey: "ANTHROPIC_AUTH_TOKEN")
+                config.removeValue(forKey: "apiKeyHelper")
+            }
         } else if let provider = provider {
             // 普通模式：使用选定的提供商
             // Normal mode: use selected provider
-            env["ANTHROPIC_API_KEY"] = provider.key
             env["ANTHROPIC_BASE_URL"] = provider.url
 
             // 设置模型配置
@@ -148,6 +164,20 @@ class ClaudeSyncService {
             } else {
                 env.removeValue(forKey: "ANTHROPIC_SMALL_FAST_MODEL")
             }
+
+            if apiKeyHelperEnabled {
+                // 密钥辅助模式：使用 apiKeyHelper 和 ANTHROPIC_AUTH_TOKEN
+                // API key helper mode: use apiKeyHelper and ANTHROPIC_AUTH_TOKEN
+                env.removeValue(forKey: "ANTHROPIC_API_KEY")
+                env["ANTHROPIC_AUTH_TOKEN"] = provider.key
+                config["apiKeyHelper"] = "echo '\(provider.key)'"
+            } else {
+                // 传统模式：使用 ANTHROPIC_API_KEY
+                // Traditional mode: use ANTHROPIC_API_KEY
+                env["ANTHROPIC_API_KEY"] = provider.key
+                env.removeValue(forKey: "ANTHROPIC_AUTH_TOKEN")
+                config.removeValue(forKey: "apiKeyHelper")
+            }
         } else {
             // 未选择提供商：清空配置
             // No provider selected: clear config
@@ -155,6 +185,8 @@ class ClaudeSyncService {
             env["ANTHROPIC_BASE_URL"] = ""
             env.removeValue(forKey: "ANTHROPIC_MODEL")
             env.removeValue(forKey: "ANTHROPIC_SMALL_FAST_MODEL")
+            env.removeValue(forKey: "ANTHROPIC_AUTH_TOKEN")
+            config.removeValue(forKey: "apiKeyHelper")
         }
 
         // 设置代理配置

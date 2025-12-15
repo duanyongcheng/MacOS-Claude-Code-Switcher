@@ -15,10 +15,11 @@ struct AppConfig: Codable {
     let proxyModeEnabled: Bool
     let proxyModePort: Int
     let proxyRequestTimeout: Int
+    let apiKeyHelperEnabled: Bool
 
     enum CodingKeys: String, CodingKey {
         case providers, currentProvider, autoUpdate, proxyHost, proxyPort, autoStartup, groups, providerGroups
-        case proxyModeEnabled, proxyModePort, proxyRequestTimeout
+        case proxyModeEnabled, proxyModePort, proxyRequestTimeout, apiKeyHelperEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -46,9 +47,10 @@ struct AppConfig: Codable {
         self.proxyModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .proxyModeEnabled) ?? false
         self.proxyModePort = try container.decodeIfPresent(Int.self, forKey: .proxyModePort) ?? AppConstants.ProxyPool.defaultPort
         self.proxyRequestTimeout = try container.decodeIfPresent(Int.self, forKey: .proxyRequestTimeout) ?? AppConstants.ProxyPool.defaultTimeout
+        self.apiKeyHelperEnabled = try container.decodeIfPresent(Bool.self, forKey: .apiKeyHelperEnabled) ?? false
     }
 
-    init(providers: [APIProvider], currentProvider: APIProvider?, autoUpdate: Bool, proxyHost: String, proxyPort: String, autoStartup: Bool, providerGroups: [ProviderGroup] = [], proxyModeEnabled: Bool = false, proxyModePort: Int = AppConstants.ProxyPool.defaultPort, proxyRequestTimeout: Int = AppConstants.ProxyPool.defaultTimeout) {
+    init(providers: [APIProvider], currentProvider: APIProvider?, autoUpdate: Bool, proxyHost: String, proxyPort: String, autoStartup: Bool, providerGroups: [ProviderGroup] = [], proxyModeEnabled: Bool = false, proxyModePort: Int = AppConstants.ProxyPool.defaultPort, proxyRequestTimeout: Int = AppConstants.ProxyPool.defaultTimeout, apiKeyHelperEnabled: Bool = false) {
         self.providers = providers
         self.currentProvider = currentProvider
         self.autoUpdate = autoUpdate
@@ -59,6 +61,7 @@ struct AppConfig: Codable {
         self.proxyModeEnabled = proxyModeEnabled
         self.proxyModePort = proxyModePort
         self.proxyRequestTimeout = proxyRequestTimeout
+        self.apiKeyHelperEnabled = apiKeyHelperEnabled
     }
 
     func encode(to encoder: Encoder) throws {
@@ -73,6 +76,7 @@ struct AppConfig: Codable {
         try container.encode(proxyModeEnabled, forKey: .proxyModeEnabled)
         try container.encode(proxyModePort, forKey: .proxyModePort)
         try container.encode(proxyRequestTimeout, forKey: .proxyRequestTimeout)
+        try container.encode(apiKeyHelperEnabled, forKey: .apiKeyHelperEnabled)
     }
 }
 
